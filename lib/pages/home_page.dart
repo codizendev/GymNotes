@@ -192,6 +192,9 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _sendFeedbackPackage() async {
+    final feedbackInput = await _collectFeedbackInput();
+    if (feedbackInput == null || !mounted) return;
+
     final messenger = ScaffoldMessenger.of(context);
     messenger.showSnackBar(const SnackBar(content: Text('Preparing feedback package...')));
 
@@ -201,8 +204,8 @@ class _HomePageState extends State<HomePage> {
       final screenshotBytes = await AppCaptureService.captureScreenshotPng(pixelRatio: 2.0);
       await FeedbackService.shareFeedbackPackage(
         subject: 'GymNotes tester feedback',
-        shareText:
-            'GymNotes tester feedback\n\nDescribe what happened:\n1) Steps to reproduce\n2) Expected result\n3) Actual result',
+        shareText: 'GymNotes tester feedback: ${feedbackInput['summary']}',
+        testerFeedback: feedbackInput,
         screenshotBytes: screenshotBytes,
       );
       if (!mounted) return;
@@ -220,6 +223,134 @@ class _HomePageState extends State<HomePage> {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(content: Text('Feedback failed: $error')));
     }
+  }
+
+  Future<Map<String, Object?>?> _collectFeedbackInput() async {
+    final summaryController = TextEditingController();
+    final stepsController = TextEditingController();
+    final expectedController = TextEditingController();
+    final actualController = TextEditingController();
+
+    String severity = 'medium';
+    String? errorText;
+
+    final result = await showDialog<Map<String, Object?>>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Session feedback'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: summaryController,
+                  decoration: const InputDecoration(
+                    labelText: 'Summary',
+                    hintText: 'Short title of the issue',
+                  ),
+                  textCapitalization: TextCapitalization.sentences,
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: severity,
+                  decoration: const InputDecoration(labelText: 'Severity'),
+                  items: const [
+                    DropdownMenuItem(value: 'low', child: Text('Low')),
+                    DropdownMenuItem(value: 'medium', child: Text('Medium')),
+                    DropdownMenuItem(value: 'high', child: Text('High')),
+                    DropdownMenuItem(value: 'critical', child: Text('Critical')),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setDialogState(() => severity = value);
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: stepsController,
+                  decoration: const InputDecoration(
+                    labelText: 'Steps to reproduce',
+                    hintText: '1) ... 2) ... 3) ...',
+                  ),
+                  textCapitalization: TextCapitalization.sentences,
+                  minLines: 3,
+                  maxLines: 5,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: expectedController,
+                  decoration: const InputDecoration(
+                    labelText: 'Expected result',
+                  ),
+                  textCapitalization: TextCapitalization.sentences,
+                  minLines: 2,
+                  maxLines: 4,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: actualController,
+                  decoration: const InputDecoration(
+                    labelText: 'Actual result',
+                  ),
+                  textCapitalization: TextCapitalization.sentences,
+                  minLines: 2,
+                  maxLines: 4,
+                ),
+                if (errorText != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    errorText!,
+                    style: TextStyle(
+                      color: Theme.of(ctx).colorScheme.error,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final summary = summaryController.text.trim();
+                final steps = stepsController.text.trim();
+                final expected = expectedController.text.trim();
+                final actual = actualController.text.trim();
+
+                if (summary.isEmpty || steps.isEmpty || expected.isEmpty || actual.isEmpty) {
+                  setDialogState(() {
+                    errorText = 'Please fill all fields before continuing.';
+                  });
+                  return;
+                }
+
+                Navigator.pop(ctx, <String, Object?>{
+                  'summary': summary,
+                  'severity': severity,
+                  'stepsToReproduce': steps,
+                  'expectedResult': expected,
+                  'actualResult': actual,
+                  'capturedAtLocal': DateTime.now().toIso8601String(),
+                });
+              },
+              child: const Text('Continue'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    summaryController.dispose();
+    stepsController.dispose();
+    expectedController.dispose();
+    actualController.dispose();
+    return result;
   }
 
   DateTime _startOfDay(DateTime d) => DateTime(d.year, d.month, d.day);

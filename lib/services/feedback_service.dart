@@ -16,6 +16,7 @@ class FeedbackService {
   static Future<void> shareFeedbackPackage({
     required String subject,
     required String shareText,
+    required Map<String, Object?> testerFeedback,
     Uint8List? screenshotBytes,
   }) async {
     final packageInfo = await PackageInfo.fromPlatform();
@@ -38,6 +39,7 @@ class FeedbackService {
         'dartVersion': Platform.version,
       },
       'storage': _collectStorageSummary(),
+      'testerFeedback': testerFeedback,
       'logs': AppLogger.snapshot(),
     };
 
