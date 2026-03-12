@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../models/workout.dart';
@@ -164,6 +165,19 @@ class _HomePageState extends State<HomePage> {
   Future<void> _showAboutDialog() async {
     final s = AppLocalizations.of(context);
     final theme = Theme.of(context);
+    String versionText = 'Unknown';
+    String packageName = 'Unknown';
+    try {
+      final info = await PackageInfo.fromPlatform();
+      versionText = '${info.version} (${info.buildNumber})';
+      packageName = info.packageName;
+    } catch (error, stackTrace) {
+      AppLogger.warn(
+        'Failed to read package info for about dialog',
+        context: <String, Object?>{'error': error.toString(), 'stack': stackTrace.toString()},
+      );
+    }
+
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -181,6 +195,14 @@ class _HomePageState extends State<HomePage> {
               ),
               const SizedBox(height: 6),
               Text(s.privacyPolicyBody),
+              const SizedBox(height: 12),
+              Text(
+                'Build info',
+                style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 6),
+              SelectableText('Version: $versionText'),
+              SelectableText('Package: $packageName'),
             ],
           ),
         ),
