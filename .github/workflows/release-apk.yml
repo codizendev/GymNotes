@@ -1,0 +1,58 @@
+name: Release Android APK
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.35.6"
+          channel: stable
+          cache: true
+
+      - name: Get packages
+        run: flutter pub get
+
+      - name: Force Gradle Java home to runner JDK
+        shell: bash
+        run: |
+          sed -i '/^org\.gradle\.java\.home=/d' android/gradle.properties
+          echo "org.gradle.java.home=$JAVA_HOME" >> android/gradle.properties
+          echo "Using org.gradle.java.home=$JAVA_HOME"
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Publish GitHub Release with APK
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          ASSET_NAME="GymNotes-${TAG}.apk"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK#$ASSET_NAME" --clobber
+          else
+            gh release create "$TAG" "$APK#$ASSET_NAME" --title "$TAG" --notes "Automated APK build for ${TAG}."
+          fi
