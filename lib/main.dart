@@ -1,4 +1,6 @@
-﻿import 'package:flutter/material.dart';
+import 'dart:ui';
+
+import 'package:flutter/material.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
@@ -13,6 +15,8 @@ import 'models/scheduled_workout.dart';
 
 import 'pages/home_page.dart';
 import 'pages/statistics_page.dart';
+import 'services/app_capture_service.dart';
+import 'services/app_logger.dart';
 import 'services/cardio_notification_service.dart';
 import 'services/workout_reminder_service.dart';
 
@@ -252,20 +256,22 @@ Future<void> _initNotifications() async {
   try {
     await CardioNotificationService.instance.init();
     await WorkoutReminderService.instance.init();
+    AppLogger.info('Notification services initialized');
   } catch (error, stackTrace) {
-    debugPrint('Notification init failed: $error');
-    debugPrintStack(stackTrace: stackTrace);
+    AppLogger.error('Notification init failed', error: error, stackTrace: stackTrace);
   }
 }
 
 void _startNotificationInit() {
   _notificationInitFuture ??= _initNotifications()
       .timeout(_notificationInitTimeout, onTimeout: () {
-        debugPrint('Notification init timed out after ${_notificationInitTimeout.inSeconds}s');
+        AppLogger.warn(
+          'Notification init timed out',
+          context: <String, Object?>{'seconds': _notificationInitTimeout.inSeconds},
+        );
       })
       .catchError((Object error, StackTrace stackTrace) {
-        debugPrint('Notification init failed: $error');
-        debugPrintStack(stackTrace: stackTrace);
+        AppLogger.error('Notification init failed', error: error, stackTrace: stackTrace);
       });
 }
 
@@ -275,7 +281,40 @@ Future<void> _runInitStep(
   void Function(String stage)? onStage,
 }) async {
   onStage?.call(stage);
-  await step();
+  AppLogger.info('Startup stage started', context: <String, Object?>{'stage': stage});
+  try {
+    await step();
+    AppLogger.info('Startup stage completed', context: <String, Object?>{'stage': stage});
+  } catch (error, stackTrace) {
+    AppLogger.error(
+      'Startup stage failed',
+      error: error,
+      stackTrace: stackTrace,
+      context: <String, Object?>{'stage': stage},
+    );
+    rethrow;
+  }
+}
+
+void _configureGlobalErrorLogging() {
+  FlutterError.onError = (FlutterErrorDetails details) {
+    AppLogger.error(
+      'Unhandled Flutter framework error',
+      error: details.exception,
+      stackTrace: details.stack,
+      context: <String, Object?>{'library': details.library ?? 'unknown'},
+    );
+    FlutterError.presentError(details);
+  };
+
+  PlatformDispatcher.instance.onError = (Object error, StackTrace stackTrace) {
+    AppLogger.error(
+      'Unhandled platform error',
+      error: error,
+      stackTrace: stackTrace,
+    );
+    return false;
+  };
 }
 
 void _registerHiveAdapters() {
@@ -334,6 +373,8 @@ Future<void> _initApp({void Function(String stage)? onStage}) async {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  _configureGlobalErrorLogging();
+  AppLogger.info('App process started');
   runApp(WorkoutLoggerApp(bootstrap: _initApp));
 }
 
@@ -376,10 +417,12 @@ class WorkoutLoggerApp extends StatelessWidget {
     );
 
     return WithForegroundTask(
-      child: MaterialApp(
-        title: 'GymNotes',
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
+      child: RepaintBoundary(
+        key: AppCaptureService.boundaryKey,
+        child: MaterialApp(
+          title: 'GymNotes',
+          debugShowCheckedModeBanner: false,
+          theme: ThemeData(
           useMaterial3: true,
           colorScheme: colorScheme,
           scaffoldBackgroundColor: _surface,
@@ -449,10 +492,11 @@ class WorkoutLoggerApp extends StatelessWidget {
             border: OutlineInputBorder(),
           ),
         ),
-        // l10n delegati
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: AppBootstrapper(bootstrap: bootstrap),
+          // l10n delegati
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: AppBootstrapper(bootstrap: bootstrap),
+        ),
       ),
     );
   }

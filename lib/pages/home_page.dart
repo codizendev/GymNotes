@@ -1,4 +1,4 @@
-﻿import 'dart:math';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -23,7 +23,10 @@ import 'import_pdf_page.dart';
 import 'schedule_page.dart';
 
 import '../services/backup_service.dart';
+import '../services/app_capture_service.dart';
+import '../services/app_logger.dart';
 import '../services/cardio_notification_service.dart';
+import '../services/feedback_service.dart';
 import '../services/readiness_service.dart';
 import '../services/workout_reminder_service.dart';
 import '../services/pro_service.dart';
@@ -186,6 +189,37 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
     );
+  }
+
+  Future<void> _sendFeedbackPackage() async {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(const SnackBar(content: Text('Preparing feedback package...')));
+
+    try {
+      AppLogger.info('Preparing feedback package from home menu');
+      await WidgetsBinding.instance.endOfFrame;
+      final screenshotBytes = await AppCaptureService.captureScreenshotPng(pixelRatio: 2.0);
+      await FeedbackService.shareFeedbackPackage(
+        subject: 'GymNotes tester feedback',
+        shareText:
+            'GymNotes tester feedback\n\nDescribe what happened:\n1) Steps to reproduce\n2) Expected result\n3) Actual result',
+        screenshotBytes: screenshotBytes,
+      );
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            screenshotBytes == null
+                ? 'Feedback package opened (without screenshot).'
+                : 'Feedback package opened in share sheet.',
+          ),
+        ),
+      );
+    } catch (error, stackTrace) {
+      AppLogger.error('Failed to share feedback package', error: error, stackTrace: stackTrace);
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('Feedback failed: $error')));
+    }
   }
 
   DateTime _startOfDay(DateTime d) => DateTime(d.year, d.month, d.day);
@@ -1213,8 +1247,10 @@ class _HomePageState extends State<HomePage> {
               PopupMenuButton<String>(
                 onSelected: (v) async {
                   if (v == 'export') {
+                    AppLogger.info('User triggered backup export');
                     await BackupService.exportAll();
                   } else if (v == 'import') {
+                    AppLogger.info('User opened backup import confirmation');
                     final confirmed = await showDialog<bool>(
                           context: context,
                           builder: (c) => AlertDialog(
@@ -1229,12 +1265,14 @@ class _HomePageState extends State<HomePage> {
                         false;
                     if (!context.mounted) return;
                     if (confirmed) {
+                      AppLogger.info('User confirmed backup import');
                       await BackupService.importAll(replace: true);
                       if (!context.mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s.importCompleted)));
                       setState(() {});
                     }
                   } else if (v == 'import_pdf') {
+                    AppLogger.info('User opened PDF import screen');
                     if (!context.mounted) return;
                     final changed = await Navigator.push<bool>(
                       context,
@@ -1244,8 +1282,12 @@ class _HomePageState extends State<HomePage> {
                       setState(() {});
                     }
                   } else if (v == 'about') {
+                    AppLogger.info('User opened about dialog');
                     await _showAboutDialog();
+                  } else if (v == 'feedback') {
+                    await _sendFeedbackPackage();
                   } else if (v == 'pro') {
+                    AppLogger.info('User opened Pro upsell');
                     await ProService.showUpsell(context, settings);
                   }
                 },
@@ -1276,6 +1318,14 @@ class _HomePageState extends State<HomePage> {
                   PopupMenuItem(
                     value: 'about',
                     child: ListTile(leading: const Icon(Icons.info_outline), title: Text(s.aboutMenu)),
+                  ),
+                  PopupMenuItem(
+                    value: 'feedback',
+                    child: ListTile(
+                      leading: const Icon(Icons.feedback_outlined),
+                      title: Text(s.sessionFeedbackTitle),
+                      subtitle: const Text('Include screenshot + logs + app version'),
+                    ),
                   ),
                 ],
               ),
