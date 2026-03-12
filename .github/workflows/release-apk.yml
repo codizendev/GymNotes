@@ -1,6 +1,7 @@
 name: Release Android APK
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - "v*"
@@ -42,17 +43,21 @@ jobs:
       - name: Build release APK
         run: flutter build apk --release
 
-      - name: Publish GitHub Release with APK
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${GITHUB_REF_NAME}"
-          APK="build/app/outputs/flutter-apk/app-release.apk"
-          ASSET_NAME="GymNotes-${TAG}.apk"
+      - name: Verify APK output
+        run: ls -la build/app/outputs/flutter-apk
 
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$APK#$ASSET_NAME" --clobber
-          else
-            gh release create "$TAG" "$APK#$ASSET_NAME" --title "$TAG" --notes "Automated APK build for ${TAG}."
-          fi
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30
+
+      - name: Publish GitHub Release with APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: Automated APK build for `${{ github.ref_name }}`.
+          files: build/app/outputs/flutter-apk/app-release.apk
+          fail_on_unmatched_files: true
