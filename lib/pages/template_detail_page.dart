@@ -3,7 +3,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 
 import '../models/workout_template.dart';
 import '../models/exercise.dart';
-// 👇 lokalizacija
+// localization
 import '../l10n/l10n.dart';
 
 class TemplateDetailPage extends StatefulWidget {
@@ -217,7 +217,7 @@ class _TemplateDetailPageState extends State<TemplateDetailPage> {
                         final x = sets[i];
                         return ListTile(
                           key: ValueKey('tmplset-$i-${x.exercise}'),
-                          title: Text('${x.exercise}  •  ${s.setNumberShort} ${x.setNumber}'),
+                          title: Text('${x.exercise}  \u2022  ${s.setNumberShort} ${x.setNumber}'),
                           subtitle: Text(_formatTemplateSubtitle(x, s)),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
@@ -325,7 +325,7 @@ String _formatTemplateSubtitle(TemplateSet x, AppLocalizations s) {
   } else {
     details = '${x.reps} ${s.reps.toLowerCase()} @ ${x.weightKg.toStringAsFixed(1)} kg';
   }
-  final extras = '${x.rpe != null ? '  ƒ?ô  RPE ${x.rpe}' : ''}${x.notes.isNotEmpty ? '\n${x.notes}' : ''}';
+  final extras = '${x.rpe != null ? '  \u2022  RPE ${x.rpe}' : ''}${x.notes.isNotEmpty ? '\n${x.notes}' : ''}';
   return '$details$extras';
 }
 

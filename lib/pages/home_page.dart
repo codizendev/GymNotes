@@ -28,7 +28,7 @@ import '../services/readiness_service.dart';
 import '../services/workout_reminder_service.dart';
 import '../services/pro_service.dart';
 
-// đź‘‡ lokalizacija
+// localization
 import '../l10n/l10n.dart';
 
 class HomePage extends StatefulWidget {
@@ -677,7 +677,7 @@ class _HomePageState extends State<HomePage> {
                         subtitle: Text(
                           t.sets.isEmpty
                               ? s.setsCount
-                              : '${t.sets.length} ${s.setsCount.toLowerCase()} â€˘ e.g. ${t.sets.first.exercise}',
+                              : '${t.sets.length} ${s.setsCount.toLowerCase()} \u2022 e.g. ${t.sets.first.exercise}',
                           maxLines: 2,
                         ),
                         trailing: const Icon(Icons.chevron_right),
@@ -1030,7 +1030,7 @@ class _HomePageState extends State<HomePage> {
     final dateStr =
         '${w.date.day.toString().padLeft(2, '0')}.${w.date.month.toString().padLeft(2, '0')}.${w.date.year}.';
 
-    // âś… proslijedi 3 argumenta: date, flag ('yes' / 'other'), title
+    // Pass all 3 arguments: date, flag ('yes' / 'other'), title.
     final titleTrim = w.title.trim();
     final bodyText = s.deleteWorkoutBody(
       dateStr,

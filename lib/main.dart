@@ -310,7 +310,7 @@ Future<void> _openBoxes() async {
 }
 
 Future<void> _seedDefaults() async {
-  // seed vje‘–bi (ostavi ako ti treba)
+  // Seed default exercises (optional).
   final ebox = Hive.box<Exercise>('exercises');
   await _ensureDefaultExercises(ebox);
   final ctbox = Hive.box<CardioTemplate>('cardio_templates');
