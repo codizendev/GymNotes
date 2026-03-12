@@ -262,131 +262,13 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<Map<String, Object?>?> _collectFeedbackInput() async {
-    final summaryController = TextEditingController();
-    final stepsController = TextEditingController();
-    final expectedController = TextEditingController();
-    final actualController = TextEditingController();
-
-    String severity = 'medium';
-    String? errorText;
-
-    final result = await showDialog<Map<String, Object?>>(
+    return showModalBottomSheet<Map<String, Object?>>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('Session feedback'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                TextField(
-                  controller: summaryController,
-                  decoration: const InputDecoration(
-                    labelText: 'Summary',
-                    hintText: 'Short title of the issue',
-                  ),
-                  textCapitalization: TextCapitalization.sentences,
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: severity,
-                  decoration: const InputDecoration(labelText: 'Severity'),
-                  items: const [
-                    DropdownMenuItem(value: 'low', child: Text('Low')),
-                    DropdownMenuItem(value: 'medium', child: Text('Medium')),
-                    DropdownMenuItem(value: 'high', child: Text('High')),
-                    DropdownMenuItem(value: 'critical', child: Text('Critical')),
-                  ],
-                  onChanged: (value) {
-                    if (value == null) return;
-                    setDialogState(() => severity = value);
-                  },
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: stepsController,
-                  decoration: const InputDecoration(
-                    labelText: 'Steps to reproduce',
-                    hintText: '1) ... 2) ... 3) ...',
-                  ),
-                  textCapitalization: TextCapitalization.sentences,
-                  minLines: 3,
-                  maxLines: 5,
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: expectedController,
-                  decoration: const InputDecoration(
-                    labelText: 'Expected result',
-                  ),
-                  textCapitalization: TextCapitalization.sentences,
-                  minLines: 2,
-                  maxLines: 4,
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: actualController,
-                  decoration: const InputDecoration(
-                    labelText: 'Actual result',
-                  ),
-                  textCapitalization: TextCapitalization.sentences,
-                  minLines: 2,
-                  maxLines: 4,
-                ),
-                if (errorText != null) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    errorText!,
-                    style: TextStyle(
-                      color: Theme.of(ctx).colorScheme.error,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final summary = summaryController.text.trim();
-                final steps = stepsController.text.trim();
-                final expected = expectedController.text.trim();
-                final actual = actualController.text.trim();
-
-                if (summary.isEmpty || steps.isEmpty || expected.isEmpty || actual.isEmpty) {
-                  setDialogState(() {
-                    errorText = 'Please fill all fields before continuing.';
-                  });
-                  return;
-                }
-
-                Navigator.pop(ctx, <String, Object?>{
-                  'summary': summary,
-                  'severity': severity,
-                  'stepsToReproduce': steps,
-                  'expectedResult': expected,
-                  'actualResult': actual,
-                  'capturedAtLocal': DateTime.now().toIso8601String(),
-                });
-              },
-              child: const Text('Continue'),
-            ),
-          ],
-        ),
-      ),
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (_) => const _FeedbackInputSheet(),
     );
-
-    summaryController.dispose();
-    stepsController.dispose();
-    expectedController.dispose();
-    actualController.dispose();
-    return result;
   }
 
   DateTime _startOfDay(DateTime d) => DateTime(d.year, d.month, d.day);
@@ -1683,6 +1565,153 @@ extension _HomeL10nFallback on AppLocalizations {
   String get overlayPromptBody =>
       'Enable draw over other apps to show 5-second interval banners while other apps are open.';
   String get overlayOpenSettings => 'Open settings';
+}
+
+class _FeedbackInputSheet extends StatefulWidget {
+  const _FeedbackInputSheet();
+
+  @override
+  State<_FeedbackInputSheet> createState() => _FeedbackInputSheetState();
+}
+
+class _FeedbackInputSheetState extends State<_FeedbackInputSheet> {
+  final _formKey = GlobalKey<FormState>();
+  final _summaryController = TextEditingController();
+  final _stepsController = TextEditingController();
+  final _expectedController = TextEditingController();
+  final _actualController = TextEditingController();
+
+  String _severity = 'medium';
+  bool _showValidationErrors = false;
+
+  @override
+  void dispose() {
+    _summaryController.dispose();
+    _stepsController.dispose();
+    _expectedController.dispose();
+    _actualController.dispose();
+    super.dispose();
+  }
+
+  String? _requiredField(String? value) {
+    if ((value ?? '').trim().isEmpty) {
+      return 'Required field';
+    }
+    return null;
+  }
+
+  void _submit() {
+    setState(() => _showValidationErrors = true);
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    Navigator.of(context).pop(<String, Object?>{
+      'summary': _summaryController.text.trim(),
+      'severity': _severity,
+      'stepsToReproduce': _stepsController.text.trim(),
+      'expectedResult': _expectedController.text.trim(),
+      'actualResult': _actualController.text.trim(),
+      'capturedAtLocal': DateTime.now().toIso8601String(),
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 150),
+      curve: Curves.easeOut,
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        child: Form(
+          key: _formKey,
+          autovalidateMode: _showValidationErrors ? AutovalidateMode.onUserInteraction : AutovalidateMode.disabled,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Session feedback',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _summaryController,
+                decoration: const InputDecoration(
+                  labelText: 'Summary',
+                  hintText: 'Short title of the issue',
+                ),
+                textCapitalization: TextCapitalization.sentences,
+                validator: _requiredField,
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: _severity,
+                decoration: const InputDecoration(labelText: 'Severity'),
+                items: const [
+                  DropdownMenuItem(value: 'low', child: Text('Low')),
+                  DropdownMenuItem(value: 'medium', child: Text('Medium')),
+                  DropdownMenuItem(value: 'high', child: Text('High')),
+                  DropdownMenuItem(value: 'critical', child: Text('Critical')),
+                ],
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() => _severity = value);
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _stepsController,
+                decoration: const InputDecoration(
+                  labelText: 'Steps to reproduce',
+                  hintText: '1) ... 2) ... 3) ...',
+                ),
+                textCapitalization: TextCapitalization.sentences,
+                minLines: 3,
+                maxLines: 5,
+                validator: _requiredField,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _expectedController,
+                decoration: const InputDecoration(labelText: 'Expected result'),
+                textCapitalization: TextCapitalization.sentences,
+                minLines: 2,
+                maxLines: 4,
+                validator: _requiredField,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _actualController,
+                decoration: const InputDecoration(labelText: 'Actual result'),
+                textCapitalization: TextCapitalization.sentences,
+                minLines: 2,
+                maxLines: 4,
+                validator: _requiredField,
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                  const Spacer(),
+                  FilledButton(
+                    onPressed: _submit,
+                    child: const Text('Continue'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// Result from picking a template or choosing an empty workout.
