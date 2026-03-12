@@ -57,6 +57,8 @@ class _WorkoutDetailPageState extends State<WorkoutDetailPage> {
   bool _inlineTimeBased = false;
 
   List<_SetGroup>? _cachedGroups;
+  Map<int, _ProgressSuggestion> _lastProgressSuggestions = const {};
+  bool _inlinePrefilledFromSuggestion = false;
 
   @override
   void initState() {
@@ -186,6 +188,7 @@ class _WorkoutDetailPageState extends State<WorkoutDetailPage> {
     final totalSecs = set.seconds ?? 0;
     _inlineEditSetKey = set.key;
     _inlineTimeBased = set.isTimeBased;
+    _inlinePrefilledFromSuggestion = false;
     _inlineExercise.text = set.exercise;
     _inlineReps.text = set.reps.toString();
     _inlineWeight.text = set.weightKg.toString();
@@ -193,11 +196,24 @@ class _WorkoutDetailPageState extends State<WorkoutDetailPage> {
     _inlineSeconds.text = (totalSecs % 60).toString();
     _inlineRpe.text = set.rpe?.toString() ?? '';
     _inlineNotes.text = set.notes;
+
+    final setKey = set.key;
+    if (!set.isTimeBased && setKey is int) {
+      final suggestion = _lastProgressSuggestions[setKey];
+      if (suggestion != null && suggestion.differsFrom(set)) {
+        _inlineReps.text = suggestion.suggestedReps.toString();
+        _inlineWeight.text = suggestion.suggestedWeightKg.toStringAsFixed(
+          suggestion.suggestedWeightKg % 1 == 0 ? 0 : 2,
+        );
+        _inlinePrefilledFromSuggestion = true;
+      }
+    }
     setState(() {});
   }
 
   void _closeInlineEditor() {
     _inlineEditSetKey = null;
+    _inlinePrefilledFromSuggestion = false;
     setState(() {});
   }
 
@@ -1176,6 +1192,213 @@ class _WorkoutDetailPageState extends State<WorkoutDetailPage> {
     setState(() => _isCompleted = false);
   }
 
+  bool _autoProgressionEnabled() {
+    return (settings.get('autoProgressionEnabled') as bool?) ?? true;
+  }
+
+  double _plateIncrement() {
+    final inc = (settings.get('plateIncrement') as num?)?.toDouble() ?? 2.5;
+    return inc > 0 ? inc : 2.5;
+  }
+
+  double _customWeightIncrease() {
+    final inc =
+        (settings.get('weightIncreaseKg') as num?)?.toDouble() ??
+        _plateIncrement();
+    return inc > 0 ? inc : _plateIncrement();
+  }
+
+  bool _useCustomIncrease() {
+    return (settings.get('useCustomIncrease') as bool?) ?? false;
+  }
+
+  Map<String, double> _parseCategoryIncrements(dynamic raw) {
+    if (raw is! Map) return {};
+    final parsed = <String, double>{};
+    raw.forEach((key, value) {
+      if (key is! String || value is! num) return;
+      parsed[key] = value.toDouble();
+    });
+    return parsed;
+  }
+
+  Map<String, String> _exerciseCategoryMap() {
+    final map = <String, String>{};
+    final ebox = Hive.box<Exercise>('exercises');
+    for (final exercise in ebox.values) {
+      final name = exercise.name.trim().toLowerCase();
+      final category = exercise.category.trim();
+      if (name.isEmpty || category.isEmpty) continue;
+      map[name] = category;
+    }
+    return map;
+  }
+
+  double _roundToIncrement(double value) {
+    final step = _plateIncrement();
+    if (step <= 0) return double.parse(value.toStringAsFixed(2));
+    final steps = (value / step).round();
+    final rounded = steps * step;
+    final clamped = rounded < 0 ? 0.0 : rounded;
+    return double.parse(clamped.toStringAsFixed(2));
+  }
+
+  double _incrementForExercise(
+    String exercise,
+    Map<String, double> categoryIncrements,
+    Map<String, String> categoryByExercise,
+  ) {
+    final exerciseKey = exercise.trim().toLowerCase();
+    final category = categoryByExercise[exerciseKey];
+    if (category != null && categoryIncrements.containsKey(category)) {
+      final value = categoryIncrements[category]!;
+      if (value > 0) return value;
+    }
+
+    if (_useCustomIncrease()) {
+      return _customWeightIncrease();
+    }
+    return _plateIncrement();
+  }
+
+  Map<int, _ProgressSuggestion> _buildProgressSuggestions(List<SetEntry> sets) {
+    if (!_autoProgressionEnabled()) return const {};
+
+    final categoryIncrements = _parseCategoryIncrements(
+      settings.get('categoryIncrements'),
+    );
+    final categoryByExercise = _exerciseCategoryMap();
+    final workoutDateByKey = <int, DateTime>{};
+    for (final w in wbox.values) {
+      final key = w.key;
+      if (key is int) {
+        workoutDateByKey[key] = w.date;
+      }
+    }
+
+    final historicalByExercise = <String, List<SetEntry>>{};
+    for (final entry in sbox.values) {
+      if (entry.workoutKey == widget.workoutKey) continue;
+      if (entry.isTimeBased) continue;
+      final exerciseKey = entry.exercise.trim().toLowerCase();
+      if (exerciseKey.isEmpty) continue;
+      final bucket = historicalByExercise.putIfAbsent(exerciseKey, () => []);
+      bucket.add(entry);
+    }
+
+    for (final list in historicalByExercise.values) {
+      list.sort((a, b) {
+        final dateA =
+            workoutDateByKey[a.workoutKey] ??
+            DateTime.fromMillisecondsSinceEpoch(0);
+        final dateB =
+            workoutDateByKey[b.workoutKey] ??
+            DateTime.fromMillisecondsSinceEpoch(0);
+        final byDate = dateB.compareTo(dateA);
+        if (byDate != 0) return byDate;
+        return b.setNumber.compareTo(a.setNumber);
+      });
+    }
+
+    final suggestions = <int, _ProgressSuggestion>{};
+    for (final set in sets) {
+      if (set.isTimeBased) continue;
+      if (set.isCompleted) continue;
+      final setKey = set.key;
+      if (setKey is! int) continue;
+      final exerciseKey = set.exercise.trim().toLowerCase();
+      if (exerciseKey.isEmpty) continue;
+
+      final recent = (historicalByExercise[exerciseKey] ?? const <SetEntry>[])
+          .take(3)
+          .toList();
+      if (recent.isEmpty) continue;
+
+      final last = recent.first;
+      final increment = _incrementForExercise(
+        set.exercise,
+        categoryIncrements,
+        categoryByExercise,
+      );
+      final targetReps = set.reps <= 0 ? 1 : set.reps;
+      var suggestedReps = targetReps;
+      var suggestedWeight = set.weightKg;
+      var rationale = 'Keep current target.';
+      var label = 'keep';
+
+      final missesOrHighRpe = recent
+          .where(
+            (h) => h.reps < targetReps || (h.rpe != null && h.rpe! >= 9.5),
+          )
+          .length;
+      final lastComfortable =
+          last.reps >= targetReps && (last.rpe == null || last.rpe! <= 8.5);
+
+      if (missesOrHighRpe >= 2) {
+        suggestedWeight = _roundToIncrement(set.weightKg * 0.95);
+        if ((set.weightKg - suggestedWeight).abs() < 0.001 &&
+            set.weightKg > 0) {
+          suggestedWeight = _roundToIncrement(set.weightKg - increment);
+        }
+        rationale = 'Recent sessions show misses/high RPE. Suggest deload.';
+        label = 'deload';
+      } else if (lastComfortable) {
+        suggestedWeight = _roundToIncrement(set.weightKg + increment);
+        rationale = 'Last session hit target comfortably. Suggest increase.';
+        label = 'increase';
+      } else if (last.rpe != null && last.rpe! >= 9.0) {
+        suggestedWeight = _roundToIncrement(set.weightKg - increment);
+        rationale = 'Last session effort was high. Suggest lighter load.';
+        label = 'reduce';
+      } else if (last.reps < targetReps) {
+        suggestedWeight = _roundToIncrement(set.weightKg);
+        rationale = 'Repeat the target before increasing load.';
+        label = 'repeat';
+      }
+
+      if (suggestedWeight < 0) suggestedWeight = 0;
+      suggestions[setKey] = _ProgressSuggestion(
+        suggestedReps: suggestedReps,
+        suggestedWeightKg: suggestedWeight,
+        rationale: rationale,
+        label: label,
+      );
+    }
+
+    return suggestions;
+  }
+
+  Future<void> _applyAllSuggestions(
+    List<SetEntry> sets,
+    Map<int, _ProgressSuggestion> suggestions,
+  ) async {
+    var applied = 0;
+    for (final set in sets) {
+      if (set.isTimeBased) continue;
+      if (set.isCompleted) continue;
+      final setKey = set.key;
+      if (setKey is! int) continue;
+      final suggestion = suggestions[setKey];
+      if (suggestion == null || !suggestion.differsFrom(set)) continue;
+      set
+        ..reps = suggestion.suggestedReps
+        ..weightKg = suggestion.suggestedWeightKg;
+      await set.save();
+      applied++;
+    }
+    await _recomputeTotals();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          applied == 0
+              ? 'No suggestion changes to apply.'
+              : 'Applied suggestions to $applied set${applied == 1 ? '' : 's'}.',
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = AppLocalizations.of(context);
@@ -1184,6 +1407,18 @@ class _WorkoutDetailPageState extends State<WorkoutDetailPage> {
       return CardioWorkoutDetailPage(workoutKey: widget.workoutKey);
     }
     final sets = _setsForWorkout();
+    final progressSuggestions = _buildProgressSuggestions(sets);
+    _lastProgressSuggestions = progressSuggestions;
+    final setByKey = <int, SetEntry>{
+      for (final set in sets)
+        if (set.key is int) set.key as int: set,
+    };
+    final suggestionChangeCount = progressSuggestions.entries
+        .where((entry) {
+          final current = setByKey[entry.key];
+          return current != null && entry.value.differsFrom(current);
+        })
+        .length;
     final prFlags = _computeSetPrFlags(sets);
     final totalPrs = prFlags.values.where((f) => f.any).length;
     final completed = _isCompleted;
@@ -1283,6 +1518,51 @@ class _WorkoutDetailPageState extends State<WorkoutDetailPage> {
                     ],
                   ),
                 ),
+                if (!completed && progressSuggestions.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.trending_up,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Progression suggestions',
+                                    style: TextStyle(fontWeight: FontWeight.w700),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    suggestionChangeCount == 0
+                                        ? 'No load/rep changes needed right now.'
+                                        : '$suggestionChangeCount set${suggestionChangeCount == 1 ? '' : 's'} can be updated based on recent performance.',
+                                    style: Theme.of(context).textTheme.bodySmall,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (suggestionChangeCount > 0)
+                              FilledButton(
+                                onPressed: () => _applyAllSuggestions(
+                                  sets,
+                                  progressSuggestions,
+                                ),
+                                child: const Text('Apply all'),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 const Divider(height: 0),
                 Expanded(
                   child: groups.isEmpty
@@ -1411,6 +1691,9 @@ class _WorkoutDetailPageState extends State<WorkoutDetailPage> {
                                       final isEditing = _isInlineEditing(se);
                                       final completedSet = se.isCompleted;
                                       final pr = prFlags[se.key] ?? _PrFlags();
+                                      final suggestion = se.key is int
+                                          ? progressSuggestions[se.key as int]
+                                          : null;
                                       String details;
                                       if (se.isTimeBased) {
                                         final secs = se.seconds ?? 0;
@@ -1487,6 +1770,28 @@ class _WorkoutDetailPageState extends State<WorkoutDetailPage> {
                                                   overflow:
                                                       TextOverflow.ellipsis,
                                                 ),
+                                                if (suggestion != null)
+                                                  Padding(
+                                                    padding:
+                                                        const EdgeInsets.only(
+                                                          top: 4,
+                                                        ),
+                                                    child: Text(
+                                                      suggestion
+                                                          .summaryForSet(se),
+                                                      style: Theme.of(context)
+                                                          .textTheme
+                                                          .bodySmall
+                                                          ?.copyWith(
+                                                            color: Theme.of(
+                                                              context,
+                                                            ).colorScheme.primary,
+                                                          ),
+                                                      maxLines: 2,
+                                                      overflow: TextOverflow
+                                                          .ellipsis,
+                                                    ),
+                                                  ),
                                                 if (pr.any)
                                                   Padding(
                                                     padding:
@@ -1704,6 +2009,18 @@ class _WorkoutDetailPageState extends State<WorkoutDetailPage> {
             controller: _inlineExercise,
             decoration: InputDecoration(labelText: s.exercise),
           ),
+          if (_inlinePrefilledFromSuggestion) ...[
+            const SizedBox(height: 6),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Auto-suggested values prefilled',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+              ),
+            ),
+          ],
           const SizedBox(height: 8),
           if (_inlineTimeBased) ...[
             Row(
@@ -1830,6 +2147,34 @@ class _PrFlags {
   final bool volume;
   const _PrFlags() : weight = false, reps = false, volume = false;
   bool get any => weight || reps || volume;
+}
+
+class _ProgressSuggestion {
+  final int suggestedReps;
+  final double suggestedWeightKg;
+  final String rationale;
+  final String label;
+
+  const _ProgressSuggestion({
+    required this.suggestedReps,
+    required this.suggestedWeightKg,
+    required this.rationale,
+    required this.label,
+  });
+
+  bool differsFrom(SetEntry set) {
+    if (set.isTimeBased) return false;
+    return set.reps != suggestedReps ||
+        (set.weightKg - suggestedWeightKg).abs() > 0.001;
+  }
+
+  String summaryForSet(SetEntry set) {
+    final target = '$suggestedReps reps @ ${suggestedWeightKg.toStringAsFixed(1)} kg';
+    if (!differsFrom(set)) {
+      return 'Suggestion ($label): keep $target. $rationale';
+    }
+    return 'Suggestion ($label): $target. $rationale';
+  }
 }
 
 class _SetGroup {
