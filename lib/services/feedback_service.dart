@@ -19,16 +19,34 @@ class FeedbackService {
     required Map<String, Object?> testerFeedback,
     Uint8List? screenshotBytes,
   }) async {
-    final packageInfo = await PackageInfo.fromPlatform();
+    var appName = 'GymNotes';
+    var packageName = 'unknown';
+    var version = 'unknown';
+    var buildNumber = 'unknown';
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      appName = packageInfo.appName;
+      packageName = packageInfo.packageName;
+      version = packageInfo.version;
+      buildNumber = packageInfo.buildNumber;
+    } catch (error, stackTrace) {
+      AppLogger.warn(
+        'Package info lookup failed',
+        context: <String, Object?>{
+          'error': error.toString(),
+          'stackTrace': stackTrace.toString(),
+        },
+      );
+    }
     final nowUtc = DateTime.now().toUtc();
 
     final report = <String, Object?>{
       'generatedAtUtc': nowUtc.toIso8601String(),
       'app': <String, Object?>{
-        'name': packageInfo.appName,
-        'packageName': packageInfo.packageName,
-        'version': packageInfo.version,
-        'buildNumber': packageInfo.buildNumber,
+        'name': appName,
+        'packageName': packageName,
+        'version': version,
+        'buildNumber': buildNumber,
       },
       'runtime': <String, Object?>{
         'mode': _buildMode(),

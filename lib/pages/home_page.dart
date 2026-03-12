@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -223,7 +224,20 @@ class _HomePageState extends State<HomePage> {
     try {
       AppLogger.info('Preparing feedback package from home menu');
       await WidgetsBinding.instance.endOfFrame;
-      final screenshotBytes = await AppCaptureService.captureScreenshotPng(pixelRatio: 2.0);
+      Uint8List? screenshotBytes;
+      try {
+        screenshotBytes = await AppCaptureService.captureScreenshotPng(
+          pixelRatio: 1.5,
+        );
+      } catch (error, stackTrace) {
+        AppLogger.warn(
+          'Screenshot capture failed during feedback flow',
+          context: <String, Object?>{
+            'error': error.toString(),
+            'stackTrace': stackTrace.toString(),
+          },
+        );
+      }
       await FeedbackService.shareFeedbackPackage(
         subject: 'GymNotes tester feedback',
         shareText: 'GymNotes tester feedback: ${feedbackInput['summary']}',
