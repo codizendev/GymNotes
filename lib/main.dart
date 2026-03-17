@@ -12,6 +12,7 @@ import 'models/readiness_entry.dart';
 import 'models/cardio_entry.dart';
 import 'models/cardio_template.dart';
 import 'models/scheduled_workout.dart';
+import 'models/program_block.dart';
 
 import 'pages/home_page.dart';
 import 'pages/statistics_page.dart';
@@ -334,6 +335,9 @@ void _registerHiveAdapters() {
   register(CardioSegmentAdapter());
   register(CardioTemplateAdapter());
   register(ScheduledWorkoutAdapter());
+  register(ProgramBlockAdapter());
+  register(ProgramSessionPlanAdapter());
+  register(ProgramProgressionConfigAdapter());
 }
 
 Future<void> _openBoxes() async {
@@ -346,6 +350,7 @@ Future<void> _openBoxes() async {
   await Hive.openBox<CardioEntry>('cardio_entries');
   await Hive.openBox<CardioTemplate>('cardio_templates');
   await Hive.openBox<ScheduledWorkout>('scheduled_workouts');
+  await Hive.openBox<ProgramBlock>('program_blocks');
 }
 
 Future<void> _seedDefaults() async {

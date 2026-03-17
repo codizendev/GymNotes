@@ -11,6 +11,7 @@ import '../models/workout_template.dart';
 import '../models/cardio_template.dart';
 import 'workout_detail_page.dart';
 import 'cardio_workout_detail_page.dart';
+import '../services/program_service.dart';
 import '../services/workout_reminder_service.dart';
 import '../l10n/l10n.dart';
 
@@ -108,7 +109,10 @@ class _SchedulePageState extends State<SchedulePage> {
   String _scheduleDisplayTitle(ScheduledWorkout schedule) {
     final linkedTitle = _linkedWorkout(schedule)?.title.trim() ?? '';
     if (linkedTitle.isNotEmpty) return linkedTitle;
-    return _templateName(schedule.kind, schedule.templateKey);
+    final base = _templateName(schedule.kind, schedule.templateKey);
+    final week = schedule.programWeek;
+    if (week == null) return base;
+    return 'W$week - $base';
   }
 
   String? _scheduleDisplayNotes(ScheduledWorkout schedule) {
@@ -196,35 +200,39 @@ class _SchedulePageState extends State<SchedulePage> {
         }
         return null;
       }
+      final tunedTemplate = ProgramService.tuneCardioTemplate(
+        schedule: schedule,
+        baseTemplate: template,
+      );
       final workoutKey = await wbox.add(
         Workout(
           date: scheduleDate,
-          title: template.name,
-          notes: template.notes,
+          title: tunedTemplate.name,
+          notes: tunedTemplate.notes,
           kind: 'cardio',
-        )..totalSets = template.segments.length,
+        )..totalSets = tunedTemplate.segments.length,
       );
       await cbox.add(
         CardioEntry(
           workoutKey: workoutKey,
-          activity: template.activity,
-          durationSeconds: template.durationSeconds,
-          distanceKm: template.distanceKm,
-          elevationGainM: template.elevationGainM,
-          inclinePercent: template.inclinePercent,
-          avgHeartRate: template.avgHeartRate,
-          maxHeartRate: template.maxHeartRate,
-          rpe: template.rpe,
-          calories: template.calories,
-          zoneSeconds: List<int>.from(template.zoneSeconds),
-          segments: template.segments.map((segment) => segment.copy()).toList(),
-          environment: template.environment,
-          terrain: template.terrain,
-          weather: template.weather,
-          equipment: template.equipment,
-          mood: template.mood,
-          energy: template.energy,
-          notes: template.notes,
+          activity: tunedTemplate.activity,
+          durationSeconds: tunedTemplate.durationSeconds,
+          distanceKm: tunedTemplate.distanceKm,
+          elevationGainM: tunedTemplate.elevationGainM,
+          inclinePercent: tunedTemplate.inclinePercent,
+          avgHeartRate: tunedTemplate.avgHeartRate,
+          maxHeartRate: tunedTemplate.maxHeartRate,
+          rpe: tunedTemplate.rpe,
+          calories: tunedTemplate.calories,
+          zoneSeconds: List<int>.from(tunedTemplate.zoneSeconds),
+          segments: tunedTemplate.segments.map((segment) => segment.copy()).toList(),
+          environment: tunedTemplate.environment,
+          terrain: tunedTemplate.terrain,
+          weather: tunedTemplate.weather,
+          equipment: tunedTemplate.equipment,
+          mood: tunedTemplate.mood,
+          energy: tunedTemplate.energy,
+          notes: tunedTemplate.notes,
         ),
       );
       return workoutKey;
@@ -254,16 +262,20 @@ class _SchedulePageState extends State<SchedulePage> {
     var totalReps = 0;
     var totalVolume = 0.0;
     for (final templateSet in template.sets) {
+      final tuned = ProgramService.tuneStrengthSet(
+        schedule: schedule,
+        baseSet: templateSet,
+      );
       final entry = SetEntry(
         workoutKey: workoutKey,
         exercise: templateSet.exercise,
         setNumber: templateSet.setNumber,
-        reps: templateSet.reps,
-        weightKg: templateSet.weightKg,
+        reps: tuned.reps,
+        weightKg: tuned.weightKg,
         rpe: templateSet.rpe,
         notes: templateSet.notes,
         isTimeBased: templateSet.isTimeBased,
-        seconds: templateSet.seconds,
+        seconds: tuned.seconds,
       );
       await sbox.add(entry);
       totalSets += 1;

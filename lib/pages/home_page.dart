@@ -22,6 +22,7 @@ import 'exercises_page.dart';
 import 'template_detail_page.dart';
 import 'import_pdf_page.dart';
 import 'schedule_page.dart';
+import 'programs_page.dart';
 
 import '../services/backup_service.dart';
 import '../services/app_capture_service.dart';
@@ -1334,6 +1335,13 @@ class _HomePageState extends State<HomePage> {
                   } else if (v == 'pro') {
                     AppLogger.info('User opened Pro upsell');
                     await ProService.showUpsell(context, settings);
+                  } else if (v == 'programs') {
+                    if (!context.mounted) return;
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const ProgramsPage()),
+                    );
+                    if (mounted) setState(() {});
                   }
                 },
                 itemBuilder: (context) => [
@@ -1351,6 +1359,14 @@ class _HomePageState extends State<HomePage> {
                       leading: const Icon(Icons.file_open),
                       title: Text(s.importFromPdfMenu),
                       subtitle: Text(s.importFromPdfSubtitle),
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'programs',
+                    child: ListTile(
+                      leading: Icon(Icons.view_timeline_outlined),
+                      title: Text('Program blocks'),
+                      subtitle: Text('Auto-generate schedule with progression'),
                     ),
                   ),
                   PopupMenuItem(
