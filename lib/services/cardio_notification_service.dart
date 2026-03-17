@@ -46,7 +46,7 @@ class CardioNotificationService {
   static const String _alertChannelId = 'cardio_segment_alerts';
   static const String _alertChannelName = 'Cardio segment alerts';
   static const String _alertChannelDescription = 'Segment change alerts for cardio workouts';
-  static const MethodChannel _overlayChannel = MethodChannel('com.example.flutter_application_1/segment_overlay');
+  static const MethodChannel _overlayChannel = MethodChannel('com.gymnotes.app/segment_overlay');
 
   final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
   bool _initialized = false;

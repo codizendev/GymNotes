@@ -1,4 +1,4 @@
-package com.example.flutter_application_1  // ← prilagodi po potrebi
+package com.gymnotes.app
 
 import android.content.ContentValues
 import android.content.Context
@@ -29,8 +29,8 @@ import android.os.Environment
 
 class MainActivity: FlutterActivity() {
 
-    private val CHANNEL = "com.example.flutter_application_1/media_save" // isto kao u Dart-u
-    private val OVERLAY_CHANNEL = "com.example.flutter_application_1/segment_overlay"
+    private val CHANNEL = "com.gymnotes.app/media_save" // isto kao u Dart-u
+    private val OVERLAY_CHANNEL = "com.gymnotes.app/segment_overlay"
     private val overlayHandler = Handler(Looper.getMainLooper())
     private var overlayView: View? = null
     private var overlayTitleView: TextView? = null
@@ -48,14 +48,14 @@ class MainActivity: FlutterActivity() {
                 try {
                     val bytes = Base64.decode(base64, Base64.DEFAULT)
 
-                    // Android 10+ (Q) – MediaStore (bez runtime permissions)
+                    // Android 10+ (Q) â€“ MediaStore (bez runtime permissions)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         val resolver = applicationContext.contentResolver
                         val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
                         val values = ContentValues().apply {
                             put(MediaStore.Downloads.DISPLAY_NAME, filename)
                             put(MediaStore.Downloads.MIME_TYPE, "application/pdf")
-                            // (opcionalno) RELATIVE_PATH: "Download/" – za neke OEM-ove
+                            // (opcionalno) RELATIVE_PATH: "Download/" â€“ za neke OEM-ove
                             put(MediaStore.Downloads.RELATIVE_PATH, "Download/")
                             put(MediaStore.Downloads.IS_PENDING, 1)
                         }
@@ -74,7 +74,7 @@ class MainActivity: FlutterActivity() {
 
                         result.success(true)
                     } else {
-                        // Android 9 i starije – javni Downloads uz WRITE_EXTERNAL_STORAGE
+                        // Android 9 i starije â€“ javni Downloads uz WRITE_EXTERNAL_STORAGE
                         val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                         if (!downloads.exists()) downloads.mkdirs()
                         val outFile = File(downloads, filename)
@@ -208,3 +208,4 @@ class MainActivity: FlutterActivity() {
         return if (resId > 0) resources.getDimensionPixelSize(resId) else dp(24)
     }
 }
+

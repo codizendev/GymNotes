@@ -34,6 +34,7 @@ class _TemplatesPageState extends State<TemplatesPage> {
   Future<void> _createTemplate() async {
     final s = AppLocalizations.of(context);
     if (!await ProService.ensureTemplateCapacity(context, settings, tbox.length)) return;
+    if (!mounted) return;
     final nameCtrl = TextEditingController();
     final notesCtrl = TextEditingController();
 
@@ -149,6 +150,7 @@ class _TemplatesPageState extends State<TemplatesPage> {
   Future<void> _createCardioTemplate() async {
     final s = AppLocalizations.of(context);
     if (!await ProService.ensureTemplateCapacity(context, settings, ctbox.length)) return;
+    if (!mounted) return;
     final nameCtrl = TextEditingController();
     final notesCtrl = TextEditingController();
 

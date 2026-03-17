@@ -219,10 +219,12 @@ class BackupService {
     final f = File('${dir.path}/workouts_backup_${DateTime.now().millisecondsSinceEpoch}.json');
     await f.writeAsString(jsonStr);
 
-    await Share.shareXFiles(
-      [XFile(f.path)],
-      text: shareText ?? 'Workout backup',
-      subject: subject ?? 'Workout backup',
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [XFile(f.path)],
+        text: shareText ?? 'Workout backup',
+        subject: subject ?? 'Workout backup',
+      ),
     );
   }
 

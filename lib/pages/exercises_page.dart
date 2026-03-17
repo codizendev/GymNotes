@@ -255,7 +255,7 @@ class _ExercisesPageState extends State<ExercisesPage> {
             Expanded(
               child: ValueListenableBuilder(
                 valueListenable: ebox.listenable(),
-                builder: (context, _, _child) {
+                builder: (context, _, child) {
                   final items = _filtered();
                   if (items.isEmpty) {
                     return ListView(

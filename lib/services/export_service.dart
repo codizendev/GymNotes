@@ -7,16 +7,15 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb, visibleForTesting;
 import 'package:flutter/services.dart';
-import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../models/workout.dart';
 import '../models/set_entry.dart';
 import '../models/cardio_entry.dart';
 
 // Android platform channel for MediaStore save
-const MethodChannel _androidSaveChannel = MethodChannel('com.example.flutter_application_1/media_save');
+const MethodChannel _androidSaveChannel = MethodChannel('com.gymnotes.app/media_save');
 
 Future<bool> _savePdfToAndroidMediaStore(Uint8List bytes, String filename) async {
   try {
@@ -24,7 +23,7 @@ Future<bool> _savePdfToAndroidMediaStore(Uint8List bytes, String filename) async
     final res = await _androidSaveChannel.invokeMethod('savePdf', {'filename': filename, 'bytesBase64': b64});
     return res == true;
   } catch (e) {
-    print('MediaStore save error: $e');
+    debugPrint('MediaStore save error: $e');
     return false;
   }
 }
@@ -298,7 +297,7 @@ Future<List<int>> _buildWorkoutPdfBytes(
   }
 
   pw.Widget keyValueTable(List<List<String>> rows, {List<String> headers = const ['Metric', 'Value']}) {
-    return pw.Table.fromTextArray(
+    return pw.TableHelper.fromTextArray(
       headers: headers,
       data: rows,
       headerDecoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFEFEFEF)),
@@ -430,7 +429,7 @@ Future<List<int>> _buildWorkoutPdfBytes(
             if (entry.segments.isEmpty)
               pw.Text('No intervals', style: body)
             else
-              pw.Table.fromTextArray(
+              pw.TableHelper.fromTextArray(
                 headers: ['Segment', 'Duration', 'Distance', 'Speed', 'Incline', 'Details'],
                 data: [
                   for (final seg in entry.segments)
@@ -503,7 +502,7 @@ Future<List<int>> _buildWorkoutPdfBytes(
             sectionTitle('Summary'),
             if (summary.isEmpty) pw.Text('-', style: body) else keyValueTable(summary),
             sectionTitle('Sets (${ordered.length})'),
-            pw.Table.fromTextArray(
+            pw.TableHelper.fromTextArray(
               headers: ['Exercise', 'Set', 'Details', 'SS', 'Notes'],
               data: [
                 for (final s in ordered)
@@ -541,7 +540,7 @@ Future<List<int>> _buildWorkoutPdfBytes(
             ),
             if (supersetGroups.isNotEmpty) ...[
               sectionTitle('Supersets'),
-              pw.Table.fromTextArray(
+              pw.TableHelper.fromTextArray(
                 headers: ['Group', 'Exercises'],
                 data: [
                   for (var index = 0; index < supersetGroups.length; index++)
@@ -628,21 +627,21 @@ Future<String> saveWorkoutPdfToDevice(Workout workout, List<SetEntry> sets) asyn
 
   if (kIsWeb) {
     await Printing.sharePdf(bytes: Uint8List.fromList(bytes), filename: suggested);
-    print('PDF offered for download (web)');
+    debugPrint('PDF offered for download (web)');
     return '';
   }
 
   if (Platform.isAndroid) {
     final ok = await _savePdfToAndroidMediaStore(Uint8List.fromList(bytes), suggested);
     if (ok) {
-      print('PDF saved to Downloads (Android via MediaStore)');
+      debugPrint('PDF saved to Downloads (Android via MediaStore)');
       return 'Downloads';
     }
     // Fallback to app Documents
     final dir = await getApplicationDocumentsDirectory();
     final path = '${dir.path}/$suggested';
     await File(path).writeAsBytes(bytes, flush: true);
-    print('MediaStore fallback saved to app dir: $path');
+    debugPrint('MediaStore fallback saved to app dir: $path');
     return path;
   }
 
@@ -650,7 +649,7 @@ Future<String> saveWorkoutPdfToDevice(Workout workout, List<SetEntry> sets) asyn
     final dir = await getApplicationDocumentsDirectory();
     final path = '${dir.path}/$suggested';
     await File(path).writeAsBytes(bytes, flush: true);
-    print('PDF saved to app Documents (iOS): $path');
+    debugPrint('PDF saved to app Documents (iOS): $path');
     return path;
   }
 
@@ -664,7 +663,7 @@ Future<String> saveWorkoutPdfToDevice(Workout workout, List<SetEntry> sets) asyn
   if (location == null) return '';
   final xf = fs.XFile.fromData(Uint8List.fromList(bytes), name: suggested, mimeType: 'application/pdf');
   await xf.saveTo(location.path);
-  print('PDF saved: ${location.path}');
+  debugPrint('PDF saved: ${location.path}');
   return location.path;
 }
 
@@ -674,21 +673,21 @@ Future<String> saveCardioWorkoutPdfToDevice(Workout workout, CardioEntry entry) 
 
   if (kIsWeb) {
     await Printing.sharePdf(bytes: Uint8List.fromList(bytes), filename: suggested);
-    print('PDF offered for download (web)');
+    debugPrint('PDF offered for download (web)');
     return '';
   }
 
   if (Platform.isAndroid) {
     final ok = await _savePdfToAndroidMediaStore(Uint8List.fromList(bytes), suggested);
     if (ok) {
-      print('PDF saved to Downloads (Android via MediaStore)');
+      debugPrint('PDF saved to Downloads (Android via MediaStore)');
       return 'Downloads';
     }
     // Fallback to app Documents
     final dir = await getApplicationDocumentsDirectory();
     final path = '${dir.path}/$suggested';
     await File(path).writeAsBytes(bytes, flush: true);
-    print('MediaStore fallback saved to app dir: $path');
+    debugPrint('MediaStore fallback saved to app dir: $path');
     return path;
   }
 
@@ -696,7 +695,7 @@ Future<String> saveCardioWorkoutPdfToDevice(Workout workout, CardioEntry entry) 
     final dir = await getApplicationDocumentsDirectory();
     final path = '${dir.path}/$suggested';
     await File(path).writeAsBytes(bytes, flush: true);
-    print('PDF saved to app Documents (iOS): $path');
+    debugPrint('PDF saved to app Documents (iOS): $path');
     return path;
   }
 
@@ -710,6 +709,6 @@ Future<String> saveCardioWorkoutPdfToDevice(Workout workout, CardioEntry entry) 
   if (location == null) return '';
   final xf = fs.XFile.fromData(Uint8List.fromList(bytes), name: suggested, mimeType: 'application/pdf');
   await xf.saveTo(location.path);
-  print('PDF saved: ${location.path}');
+  debugPrint('PDF saved: ${location.path}');
   return location.path;
 }

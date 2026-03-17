@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
@@ -83,10 +82,12 @@ class FeedbackService {
       },
     );
 
-    await Share.shareXFiles(
-      files,
-      subject: subject,
-      text: shareText,
+    await SharePlus.instance.share(
+      ShareParams(
+        files: files,
+        subject: subject,
+        text: shareText,
+      ),
     );
   }
 

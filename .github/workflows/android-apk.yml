@@ -34,6 +34,12 @@ jobs:
       - name: Get packages
         run: flutter pub get
 
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
       - name: Force Gradle Java home to runner JDK
         shell: bash
         run: |

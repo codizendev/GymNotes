@@ -405,7 +405,7 @@ class WorkoutLoggerApp extends StatelessWidget {
       onErrorContainer: Color(0xFFF9DEDC),
       surface: _surface,
       onSurface: _text,
-      surfaceVariant: Color(0xFF1B1D22),
+      surfaceContainerHighest: Color(0xFF1B1D22),
       onSurfaceVariant: _text,
       outline: _divider,
       outlineVariant: Color(0xFF3A3D45),
@@ -444,7 +444,7 @@ class WorkoutLoggerApp extends StatelessWidget {
           dividerTheme: const DividerThemeData(color: _divider),
           navigationBarTheme: NavigationBarThemeData(
             backgroundColor: _card,
-            indicatorColor: _lime.withOpacity(0.2),
+            indicatorColor: _lime.withValues(alpha: 0.2),
             labelTextStyle: WidgetStateProperty.resolveWith(
               (states) => TextStyle(
                 color: states.contains(WidgetState.selected) ? _lime : _muted,
@@ -482,7 +482,7 @@ class WorkoutLoggerApp extends StatelessWidget {
           ),
           chipTheme: ChipThemeData(
             backgroundColor: _card,
-            selectedColor: _lime.withOpacity(0.2),
+            selectedColor: _lime.withValues(alpha: 0.2),
             labelStyle: const TextStyle(color: _text),
             secondaryLabelStyle: const TextStyle(color: _text),
             side: const BorderSide(color: _divider),

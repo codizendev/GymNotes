@@ -21,18 +21,6 @@ class StatisticsPage extends StatefulWidget {
 
 enum _Period { week, month }
 
-extension _StatsL10nFallback on AppLocalizations {
-  String get cardioSummaryTitle => 'Cardio summary';
-  String get noCardioInPeriod => 'No cardio sessions in the selected period.';
-  String get cardioSessionsLabel => 'Cardio sessions';
-  String get durationLabel => 'Duration';
-  String get distanceTotalLabel => 'Distance';
-  String get noDistance => 'No distance';
-  String get noDuration => 'No duration';
-  String get longestSessionLabel => 'Longest session';
-  String get bestPaceLabel => 'Best pace';
-}
-
 // Exercise progress section.
 enum _EPMetric { maxWeight, est1RM, totalReps, totalTimeSec }
 enum _EPPeriod { days30, days180, year1, all }

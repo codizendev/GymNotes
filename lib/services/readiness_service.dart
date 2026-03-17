@@ -160,7 +160,7 @@ class ReadinessService {
     final loadMult = snap?.loadModifier ?? 1.0;
     final volumeMult = snap?.volumeModifier ?? 1.0;
 
-    double _round(double value) {
+    double roundWeight(double value) {
       if (weightIncrement == null || weightIncrement <= 0) {
         return double.parse(value.toStringAsFixed(1));
       }
@@ -171,11 +171,11 @@ class ReadinessService {
     final tunedSets = template.sets.map((s) {
       double tunedWeight;
       if (additiveIncrease != null && additiveIncrease > 0 && loadMult > 1.0) {
-        tunedWeight = _round(s.weightKg + additiveIncrease);
+        tunedWeight = roundWeight(s.weightKg + additiveIncrease);
       } else if (loadMult < 1.0) {
-        tunedWeight = _round(s.weightKg * loadMult);
+        tunedWeight = roundWeight(s.weightKg * loadMult);
       } else {
-        tunedWeight = _round(s.weightKg);
+        tunedWeight = roundWeight(s.weightKg);
       }
       final tunedReps = max(1, (s.reps * volumeMult).round());
       final tunedSeconds = s.seconds != null ? max(1, (s.seconds! * volumeMult).round()) : null;

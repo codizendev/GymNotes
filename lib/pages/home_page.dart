@@ -1,5 +1,4 @@
 import 'dart:math';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -178,6 +177,7 @@ class _HomePageState extends State<HomePage> {
         context: <String, Object?>{'error': error.toString(), 'stack': stackTrace.toString()},
       );
     }
+    if (!mounted) return;
 
     await showDialog<void>(
       context: context,
@@ -673,11 +673,6 @@ class _HomePageState extends State<HomePage> {
     await settings.put('categoryIncrements', Map<String, double>.from(_categoryIncrements));
   }
 
-  Future<void> _setVolumeMode(String mode) async {
-    setState(() => _volumeMode = mode);
-    await settings.put('volumeMode', mode);
-  }
-
   List<Workout> _latestWorkoutsFrom(List<Workout> workouts, {int limit = 10}) {
     if (workouts.isEmpty) return const <Workout>[];
     final list = List<Workout>.from(workouts)..sort((a, b) => b.date.compareTo(a.date));
@@ -1046,6 +1041,7 @@ class _HomePageState extends State<HomePage> {
       return;
     }
     if (!await ProService.ensureTemplateCapacity(context, settings, tbox.length)) return;
+    if (!mounted) return;
 
     final d = w.date;
     final defaultName = (w.title.isNotEmpty)
@@ -1545,16 +1541,7 @@ class _HomePageState extends State<HomePage> {
 }
 
 extension _HomeL10nFallback on AppLocalizations {
-  String get cardioTemplatePickTitle => 'Pick a cardio template';
-  String get noDistance => 'No distance';
-  String get importFromPdfSubtitle => 'Restore a workout or a template from a PDF.';
-  String get noDuration => 'No duration';
-  String get durationLabel => 'Duration';
-  String get distanceTotalLabel => 'Distance';
-  String get scheduleTitle => 'Schedule';
   String get scheduledWorkoutsTitle => 'Scheduled workouts';
-  String get scheduleWorkoutAction => 'Schedule workout';
-  String get noScheduledWorkouts => 'No scheduled workouts yet.';
   String get upcomingReminderTitle => 'Upcoming workout';
   String get permissionsPromptTitle => 'Permissions';
   String get permissionsPromptBody =>
@@ -1851,9 +1838,9 @@ class _ScheduleCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary.withOpacity(0.12),
+                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.3)),
+                  border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)),
                 ),
                 child: Row(
                   children: [

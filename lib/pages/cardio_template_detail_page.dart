@@ -173,7 +173,7 @@ class _CardioTemplateDetailPageState extends State<CardioTemplateDetailPage> {
                 ),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
-                  value: selectedType,
+                  initialValue: selectedType,
                   decoration: InputDecoration(labelText: s.segmentType),
                   items: [
                     DropdownMenuItem(value: 'warmup', child: Text(s.segmentWarmup)),

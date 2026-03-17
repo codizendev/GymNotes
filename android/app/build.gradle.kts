@@ -17,7 +17,7 @@ kotlin {
     jvmToolchain(17)
 }
 
-val appId = "com.example.flutter_application_1"
+val appId = "com.gymnotes.app"
 val keystoreProperties = Properties()
 val keystorePropertiesFile = rootProject.file("key.properties")
 val hasReleaseKeystore = keystorePropertiesFile.exists()

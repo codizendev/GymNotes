@@ -1,8 +1,8 @@
 # Release Checklist (Android First)
 
 ## 1) One-time metadata
-- [ ] Change Android `applicationId` from `com.example.flutter_application_1` to your final package id in `android/app/build.gradle.kts`.
-- [ ] Change `namespace` in `android/app/build.gradle.kts` to match final package id.
+- [ ] Confirm Android `applicationId` in `android/app/build.gradle.kts` is your final package id (currently `com.gymnotes.app`).
+- [ ] Confirm `namespace` in `android/app/build.gradle.kts` matches the final package id.
 - [ ] Update `pubspec.yaml`:
   - [ ] `description`
   - [ ] `version` (`x.y.z+build`)
