@@ -1,46 +1,9 @@
-# GymNotes
+GymNotes
 
-Offline workout tracker built with Flutter.
+GymNotes is a simple, privacy-first workout app for tracking strength and cardio training.
 
-## Pricing model
-- Completely free app.
-- No subscriptions, in-app purchases, ads, or paywalled features.
+Plan sessions, log sets, and stay consistent with built-in scheduling and reminders. Create reusable templates for both strength and cardio workouts, including interval-based sessions. Use progression tools and exercise history to improve over time, then review clear statistics to track trends.
 
-## Core features
-- Strength workouts and templates
-- Cardio workouts and interval templates
-- Scheduling with reminders
-- Two-way sync between scheduled items and linked workouts
-- Backup export/import (JSON)
-- Workout PDF export/import
-- Auto progression tuning controls
-- Advanced exercise progress statistics
+Key features:
 
-## Development
-```bash
-flutter pub get
-flutter test
-flutter analyze
-flutter run
-```
-
-## Publishing (Android)
-1. Prepare signing (`android/key.properties`, keystore file).
-2. Set app metadata:
-- `pubspec.yaml` `description` and `version`
-- `android/app/build.gradle.kts` `applicationId` + `namespace`
-3. Run pre-publish validation:
-```bash
-# Windows
-.\android\gradlew.bat -p android app:prepublishCheck
-# macOS/Linux
-./android/gradlew -p android app:prepublishCheck
-```
-4. Build artifacts:
-```bash
-flutter build apk --release
-flutter build appbundle --release
-```
-5. Publish policy/metadata:
-- Host [`PRIVACY_POLICY.md`](PRIVACY_POLICY.md) at a public URL.
-- Complete all items in [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md).
+Strength workout logging (sets, reps, weight, notes) Cardio workout logging (duration, intervals, details) Workout and cardio templates Schedule with reminders Exercise progress statistics PDF import/export Full backup/export and restore (JSON) GymNotes is completely free, with no subscriptions, no ads, and no paywalled features. Your data stays on your device unless you choose to export or share it.
