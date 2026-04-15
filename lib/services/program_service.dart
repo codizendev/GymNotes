@@ -2,11 +2,14 @@ import 'dart:math';
 
 import 'package:hive/hive.dart';
 
+import '../models/exercise.dart';
 import '../models/cardio_entry.dart';
 import '../models/cardio_template.dart';
 import '../models/program_block.dart';
 import '../models/readiness_entry.dart';
 import '../models/scheduled_workout.dart';
+import '../models/set_entry.dart';
+import '../models/workout.dart';
 import '../models/workout_template.dart';
 import 'workout_reminder_service.dart';
 
@@ -111,69 +114,108 @@ class ProgramService {
   }
 
   static ({double weightKg, int reps, int? seconds}) tuneStrengthSet({
-    required ScheduledWorkout schedule,
+    ScheduledWorkout? schedule,
     required TemplateSet baseSet,
+    int requiredSetCount = 1,
   }) {
-    final program = programForSchedule(schedule);
+    final program = schedule == null ? null : programForSchedule(schedule);
     final config = program?.progression;
-    if (config == null) {
-      return (
-        weightKg: baseSet.weightKg,
-        reps: baseSet.reps,
-        seconds: baseSet.seconds,
-      );
-    }
-
-    final week = schedule.programWeek ?? 1;
-    final strengthSteps = _stepsForWeek(week, config.strengthStepEveryWeeks);
+    final settings = _readTuningSettings();
+    final week = schedule?.programWeek ?? 1;
+    final readiness = settings.autoProgressionEnabled
+        ? _latestReadiness()
+        : (loadModifier: 1.0, volumeModifier: 1.0);
+    final categoryByExercise = _exerciseCategoryMap();
+    final targetReps = baseSet.reps <= 0 ? 1 : baseSet.reps;
+    final metTarget = _latestSessionMetTarget(
+      exercise: baseSet.exercise,
+      targetReps: targetReps,
+      requiredSetCount: requiredSetCount,
+    );
+    final increment = _incrementForExercise(
+      exercise: baseSet.exercise,
+      settings: settings,
+      categoryByExercise: categoryByExercise,
+    );
 
     var weight = baseSet.weightKg;
-    if (config.strengthMode == 'fixed_kg') {
-      weight += strengthSteps * config.strengthStepValueKg;
-    } else if (config.strengthMode == 'percent') {
-      weight *= (1 + ((config.strengthStepPercent * strengthSteps) / 100));
+    if (config != null) {
+      final strengthSteps = _stepsForWeek(week, config.strengthStepEveryWeeks);
+      if (config.strengthMode == 'fixed_kg') {
+        weight += strengthSteps * config.strengthStepValueKg;
+      } else if (config.strengthMode == 'percent') {
+        weight *= (1 + ((config.strengthStepPercent * strengthSteps) / 100));
+      }
     }
 
     var loadFactor = 1.0;
-    var volumeFactor = 1.0;
-
-    if (_isDeloadWeek(config, week)) {
+    if (config != null && _isDeloadWeek(config, week)) {
       loadFactor *= max(0.2, 1 + (config.deloadLoadPercent / 100));
-      volumeFactor *= max(0.2, 1 + (config.deloadVolumePercent / 100));
     }
 
-    if (config.applyReadinessModifiers) {
-      final readiness = _latestReadiness();
+    // Positive jumps are allowed only when last comparable session hit target reps.
+    if (settings.autoProgressionEnabled && metTarget) {
+      weight += increment;
+    } else if (weight > baseSet.weightKg) {
+      weight = baseSet.weightKg;
+    }
+
+    // Readiness can reduce load, but does not add load above planned targets.
+    if (settings.autoProgressionEnabled && readiness.loadModifier < 1.0) {
       loadFactor *= readiness.loadModifier;
-      volumeFactor *= readiness.volumeModifier;
+    }
+    weight *= loadFactor;
+    if (!metTarget && weight > baseSet.weightKg) {
+      weight = baseSet.weightKg;
     }
 
-    final roundStep = config.strengthRoundingKg <= 0 ? 0.5 : config.strengthRoundingKg;
-    final tunedWeight = _roundToStep(weight * loadFactor, roundStep);
+    final roundStep = settings.plateIncrement > 0 ? settings.plateIncrement : 2.5;
+    final double clampedWeight = max<double>(0, weight);
+    final hasWeightAdjustment = (clampedWeight - baseSet.weightKg).abs() > 0.0001;
+    final double tunedWeight = hasWeightAdjustment
+        ? _roundToStep(clampedWeight, roundStep)
+        : max<double>(0, baseSet.weightKg);
+
+    var volumeFactor = 1.0;
+    if (settings.volumeMode == 'auto') {
+      if (config != null && _isDeloadWeek(config, week)) {
+        volumeFactor *= max(0.2, 1 + (config.deloadVolumePercent / 100));
+      }
+      if (settings.autoProgressionEnabled) {
+        volumeFactor *= readiness.volumeModifier;
+      }
+    }
 
     if (baseSet.isTimeBased) {
       final baseSeconds = baseSet.seconds ?? 0;
+      final tunedSeconds = volumeFactor == 1.0
+          ? baseSet.seconds
+          : max(1, (baseSeconds * volumeFactor).round());
       return (
         weightKg: tunedWeight,
         reps: baseSet.reps,
-        seconds: max(1, (baseSeconds * volumeFactor).round()),
+        seconds: tunedSeconds,
       );
     }
 
+    final tunedReps = volumeFactor == 1.0
+        ? baseSet.reps
+        : max(1, (baseSet.reps * volumeFactor).round());
     return (
       weightKg: tunedWeight,
-      reps: max(1, (baseSet.reps * volumeFactor).round()),
+      reps: tunedReps,
       seconds: baseSet.seconds,
     );
   }
 
   static CardioTemplate tuneCardioTemplate({
-    required ScheduledWorkout schedule,
+    ScheduledWorkout? schedule,
     required CardioTemplate baseTemplate,
   }) {
-    final program = programForSchedule(schedule);
+    final program = schedule == null ? null : programForSchedule(schedule);
     final config = program?.progression;
-    if (config == null) {
+    final settings = _readTuningSettings();
+    if (config == null && settings.volumeMode != 'auto') {
       return CardioTemplate(
         name: baseTemplate.name,
         activity: baseTemplate.activity,
@@ -197,33 +239,39 @@ class ProgramService {
       );
     }
 
-    final week = schedule.programWeek ?? 1;
-    final cardioSteps = _stepsForWeek(week, config.cardioStepEveryWeeks);
+    final readiness = settings.autoProgressionEnabled
+        ? _latestReadiness()
+        : (loadModifier: 1.0, volumeModifier: 1.0);
+    final week = schedule?.programWeek ?? 1;
+    final cardioSteps = config == null ? 0 : _stepsForWeek(week, config.cardioStepEveryWeeks);
     final segments = baseTemplate.segments.map((s) => s.copy()).toList();
 
-    if (config.cardioMode == 'duration_seconds' && cardioSteps > 0) {
-      final add = cardioSteps * config.cardioStepValueSeconds;
-      _addSecondsToSegments(
-        segments,
-        add,
-        preferWorkSegments: true,
-        distributeAcrossTargets: true,
-      );
-    } else if (config.cardioMode == 'work_interval_seconds' && cardioSteps > 0) {
-      final add = cardioSteps * config.cardioWorkIntervalStepSeconds;
-      _addSecondsToSegments(segments, add, preferWorkSegments: true, onlyWork: true);
+    if (settings.volumeMode == 'auto' && config != null) {
+      if (config.cardioMode == 'duration_seconds' && cardioSteps > 0) {
+        final add = cardioSteps * config.cardioStepValueSeconds;
+        _addSecondsToSegments(
+          segments,
+          add,
+          preferWorkSegments: true,
+          distributeAcrossTargets: true,
+        );
+      } else if (config.cardioMode == 'work_interval_seconds' && cardioSteps > 0) {
+        final add = cardioSteps * config.cardioWorkIntervalStepSeconds;
+        _addSecondsToSegments(segments, add, preferWorkSegments: true, onlyWork: true);
+      }
     }
 
     var volumeFactor = 1.0;
-    if (config.cardioMode == 'duration_percent' && cardioSteps > 0) {
-      volumeFactor *= (1 + ((config.cardioStepPercent * cardioSteps) / 100));
-    }
-    if (_isDeloadWeek(config, week)) {
-      volumeFactor *= max(0.2, 1 + (config.deloadVolumePercent / 100));
-    }
-    if (config.applyReadinessModifiers) {
-      final readiness = _latestReadiness();
-      volumeFactor *= readiness.volumeModifier;
+    if (settings.volumeMode == 'auto') {
+      if (config != null && config.cardioMode == 'duration_percent' && cardioSteps > 0) {
+        volumeFactor *= (1 + ((config.cardioStepPercent * cardioSteps) / 100));
+      }
+      if (config != null && _isDeloadWeek(config, week)) {
+        volumeFactor *= max(0.2, 1 + (config.deloadVolumePercent / 100));
+      }
+      if (settings.autoProgressionEnabled) {
+        volumeFactor *= readiness.volumeModifier;
+      }
     }
 
     for (final seg in segments) {
@@ -358,4 +406,133 @@ class ProgramService {
     final min = d.minute.toString().padLeft(2, '0');
     return '$dd.$mm.${d.year} $hh:$min';
   }
+
+  static _TuningSettings _readTuningSettings() {
+    final settings = Hive.box('settings');
+    final plateIncrement = (settings.get('plateIncrement') as num?)?.toDouble() ?? 2.5;
+    final storedIncrease = (settings.get('weightIncreaseKg') as num?)?.toDouble();
+    final useCustomIncrease = (settings.get('useCustomIncrease') as bool?) ?? false;
+    final autoProgressionEnabled = (settings.get('autoProgressionEnabled') as bool?) ?? false;
+    final volumeModeRaw = (settings.get('volumeMode') as String?) ?? 'auto';
+    final volumeMode = volumeModeRaw == 'fixed' ? 'fixed' : 'auto';
+    final categoryIncrements = _parseCategoryIncrements(settings.get('categoryIncrements'));
+
+    final normalizedPlate = plateIncrement > 0 ? plateIncrement : 2.5;
+    final normalizedIncrease = (storedIncrease != null && storedIncrease > 0)
+        ? storedIncrease
+        : normalizedPlate;
+
+    return _TuningSettings(
+      autoProgressionEnabled: autoProgressionEnabled,
+      plateIncrement: normalizedPlate,
+      weightIncreaseKg: normalizedIncrease,
+      useCustomIncrease: useCustomIncrease,
+      volumeMode: volumeMode,
+      categoryIncrements: categoryIncrements,
+    );
+  }
+
+  static Map<String, double> _parseCategoryIncrements(dynamic raw) {
+    if (raw is! Map) return const {};
+    final parsed = <String, double>{};
+    raw.forEach((key, value) {
+      if (key is! String || value is! num) return;
+      final normalized = value.toDouble();
+      if (normalized > 0) {
+        parsed[key] = normalized;
+      }
+    });
+    return parsed;
+  }
+
+  static Map<String, String> _exerciseCategoryMap() {
+    final map = <String, String>{};
+    try {
+      final ebox = Hive.box<Exercise>('exercises');
+      for (final e in ebox.values) {
+        final name = e.name.trim().toLowerCase();
+        final category = e.category.trim();
+        if (name.isEmpty || category.isEmpty) continue;
+        map[name] = category;
+      }
+    } catch (_) {
+      // ignore
+    }
+    return map;
+  }
+
+  static double _incrementForExercise({
+    required String exercise,
+    required _TuningSettings settings,
+    required Map<String, String> categoryByExercise,
+  }) {
+    final key = exercise.trim().toLowerCase();
+    final category = categoryByExercise[key];
+    if (category != null) {
+      final override = settings.categoryIncrements[category];
+      if (override != null && override > 0) return override;
+    }
+    if (settings.useCustomIncrease && settings.weightIncreaseKg > 0) {
+      return settings.weightIncreaseKg;
+    }
+    return settings.plateIncrement > 0 ? settings.plateIncrement : 2.5;
+  }
+
+  static bool _latestSessionMetTarget({
+    required String exercise,
+    required int targetReps,
+    required int requiredSetCount,
+  }) {
+    final normalizedExercise = exercise.trim().toLowerCase();
+    final requiredCount = max(1, requiredSetCount);
+    if (normalizedExercise.isEmpty || targetReps <= 0) return false;
+
+    try {
+      final workouts = Hive.box<Workout>('workouts').values.toList()
+        ..sort((a, b) => b.date.compareTo(a.date));
+      final sets = Hive.box<SetEntry>('sets').values;
+      final byWorkout = <int, List<SetEntry>>{};
+
+      for (final entry in sets) {
+        if (entry.isTimeBased) continue;
+        if (entry.exercise.trim().toLowerCase() != normalizedExercise) continue;
+        byWorkout.putIfAbsent(entry.workoutKey, () => <SetEntry>[]).add(entry);
+      }
+
+      for (final workout in workouts) {
+        final key = workout.key;
+        if (key is! int) continue;
+        final entries = byWorkout[key];
+        if (entries == null || entries.isEmpty) continue;
+        final completed = entries.where((e) => e.isCompleted).toList();
+        final source = completed.length >= requiredCount ? completed : entries;
+        if (source.length < requiredCount) continue;
+        final ordered = source..sort((a, b) => a.setNumber.compareTo(b.setNumber));
+        final comparable = ordered.take(requiredCount);
+        return comparable.every((set) => set.reps >= targetReps);
+      }
+    } catch (_) {
+      return false;
+    }
+
+    return false;
+  }
+}
+
+class _TuningSettings {
+  const _TuningSettings({
+    required this.autoProgressionEnabled,
+    required this.plateIncrement,
+    required this.weightIncreaseKg,
+    required this.useCustomIncrease,
+    required this.volumeMode,
+    required this.categoryIncrements,
+  });
+
+  final bool autoProgressionEnabled;
+  final double plateIncrement;
+  final double weightIncreaseKg;
+  final bool useCustomIncrease;
+  final String volumeMode;
+  final Map<String, double> categoryIncrements;
 }

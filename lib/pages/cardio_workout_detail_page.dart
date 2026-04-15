@@ -12,7 +12,6 @@ import '../models/cardio_template.dart';
 import '../models/scheduled_workout.dart';
 import '../services/export_service.dart';
 import '../services/cardio_notification_service.dart';
-import '../services/pro_service.dart';
 import '../services/workout_reminder_service.dart';
 import '../l10n/l10n.dart';
 
@@ -37,7 +36,6 @@ class _CardioWorkoutDetailPageState extends State<CardioWorkoutDetailPage>
   late final Box<CardioTemplate> tbox;
   late final Box<ScheduledWorkout> swbox;
   late final Box<Exercise> ebox;
-  late final Box settings;
   CardioEntry? _entry;
 
   _CardioFlow _flow = _CardioFlow.plan;
@@ -87,7 +85,6 @@ class _CardioWorkoutDetailPageState extends State<CardioWorkoutDetailPage>
     tbox = Hive.box<CardioTemplate>('cardio_templates');
     swbox = Hive.box<ScheduledWorkout>('scheduled_workouts');
     ebox = Hive.box<Exercise>('exercises');
-    settings = Hive.box('settings');
     _zoneMinutes = List.generate(5, (_) => TextEditingController());
     _beepPlayer = AudioPlayer();
     unawaited(_beepPlayer.setPlayerMode(PlayerMode.lowLatency));
@@ -359,17 +356,11 @@ class _CardioWorkoutDetailPageState extends State<CardioWorkoutDetailPage>
       ).showSnackBar(SnackBar(content: Text(s.cardioNeedSegments)));
       return;
     }
-    final hasInvalid = entry.segments.any((seg) => seg.durationSeconds <= 0);
-    if (hasInvalid) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(s.cardioInvalidSegmentDuration)));
-      return;
-    }
 
     _elapsedSeconds = 0;
     _currentSegmentIndex = 0;
-    _segmentRemaining = entry.segments.first.durationSeconds;
+    final firstDuration = entry.segments.first.durationSeconds;
+    _segmentRemaining = firstDuration < 0 ? 0 : firstDuration;
     _isPaused = false;
     _lastPreAlertSegmentIndex = -1;
     _lastPostAlertSegmentIndex = -1;
@@ -385,6 +376,15 @@ class _CardioWorkoutDetailPageState extends State<CardioWorkoutDetailPage>
     if (!mounted || _flow != _CardioFlow.running) return;
     if (_isPaused) return;
     if (_segmentRemaining <= 0) {
+      final current = _segmentAt(_currentSegmentIndex);
+      if ((current?.durationSeconds ?? 0) <= 0) {
+        // Empty-duration intervals require manual progression.
+        setState(() {
+          _elapsedSeconds += 1;
+        });
+        unawaited(_updateNotification());
+        return;
+      }
       _advanceSegment();
       return;
     }
@@ -400,7 +400,10 @@ class _CardioWorkoutDetailPageState extends State<CardioWorkoutDetailPage>
     }
     unawaited(_updateNotification());
     if (_segmentRemaining == 0) {
-      _advanceSegment();
+      final current = _segmentAt(_currentSegmentIndex);
+      if ((current?.durationSeconds ?? 0) > 0) {
+        _advanceSegment();
+      }
     }
   }
 
@@ -412,7 +415,8 @@ class _CardioWorkoutDetailPageState extends State<CardioWorkoutDetailPage>
       return;
     }
     _currentSegmentIndex += 1;
-    _segmentRemaining = entry.segments[_currentSegmentIndex].durationSeconds;
+    final segmentDuration = entry.segments[_currentSegmentIndex].durationSeconds;
+    _segmentRemaining = segmentDuration < 0 ? 0 : segmentDuration;
     _playSegmentChangeCue();
     _maybeShowPostSegmentAlert();
     if (mounted) setState(() {});
@@ -445,7 +449,7 @@ class _CardioWorkoutDetailPageState extends State<CardioWorkoutDetailPage>
     unawaited(_updateNotification());
   }
 
-  void _skipSegment() {
+  void _nextSegment() {
     if (_flow != _CardioFlow.running) return;
     _advanceSegment();
   }
@@ -886,12 +890,13 @@ class _CardioWorkoutDetailPageState extends State<CardioWorkoutDetailPage>
                           final seconds =
                               int.tryParse(secondsCtrl.text.trim()) ?? 0;
                           final total = (minutes * 60) + seconds;
+                          final normalizedTotal = total < 0 ? 0 : total;
                           Navigator.pop(
                             ctx,
                             CardioSegment(
                               label: labelCtrl.text.trim(),
                               type: selectedType,
-                              durationSeconds: total,
+                              durationSeconds: normalizedTotal,
                               distanceKm: _tryParseDouble(distanceCtrl.text),
                               targetSpeedKph: _tryParseDouble(
                                 targetSpeedCtrl.text,
@@ -934,6 +939,18 @@ class _CardioWorkoutDetailPageState extends State<CardioWorkoutDetailPage>
     if (entry == null) return;
     if (index < 0 || index >= entry.segments.length) return;
     entry.segments.removeAt(index);
+    await entry.save();
+    final w = workout..totalSets = entry.segments.length;
+    await w.save();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _duplicateSegment(int index) async {
+    final entry = _entryForWorkout();
+    if (entry == null) return;
+    if (index < 0 || index >= entry.segments.length) return;
+    final duplicate = entry.segments[index].copy();
+    entry.segments.insert(index + 1, duplicate);
     await entry.save();
     final w = workout..totalSets = entry.segments.length;
     await w.save();
@@ -1049,13 +1066,6 @@ class _CardioWorkoutDetailPageState extends State<CardioWorkoutDetailPage>
 
   Future<void> _saveAsTemplate() async {
     final s = AppLocalizations.of(context);
-    if (!await ProService.ensureTemplateCapacity(
-      context,
-      settings,
-      tbox.length,
-    )) {
-      return;
-    }
     if (!mounted) return;
     final nameCtrl = TextEditingController();
     final ok =
@@ -1146,16 +1156,56 @@ class _CardioWorkoutDetailPageState extends State<CardioWorkoutDetailPage>
     );
   }
 
-  Future<void> _exportPdf(String type) async {
+  Future<String?> _pickPdfExportAction() async {
+    final s = AppLocalizations.of(context);
+    return showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: Text(
+                s.exportSharePdf,
+                style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.share),
+              title: const Text('Share'),
+              onTap: () => Navigator.pop(ctx, 'share'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.download),
+              title: Text(s.savePdfToDevice),
+              onTap: () => Navigator.pop(ctx, 'download'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.close),
+              title: Text(s.cancel),
+              onTap: () => Navigator.pop(ctx),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _exportPdfWithChoice() async {
     final s = AppLocalizations.of(context);
     try {
       final baseEntry =
           _entryForWorkout() ?? CardioEntry(workoutKey: widget.workoutKey);
       final snapshot = _buildExportEntry(baseEntry);
 
-      if (type == 'pdf') {
+      final action = await _pickPdfExportAction();
+      if (action == null) return;
+      if (action == 'share') {
         await shareCardioWorkoutPdf(workout, snapshot);
-      } else if (type == 'save_pdf') {
+      } else if (action == 'download') {
         final location = await saveCardioWorkoutPdfToDevice(workout, snapshot);
         if (!mounted) return;
         final message = location.isEmpty
@@ -1180,13 +1230,6 @@ class _CardioWorkoutDetailPageState extends State<CardioWorkoutDetailPage>
         child: ListTile(
           leading: const Icon(Icons.picture_as_pdf),
           title: Text(s.exportSharePdf),
-        ),
-      ),
-      PopupMenuItem(
-        value: 'save_pdf',
-        child: ListTile(
-          leading: const Icon(Icons.download),
-          title: Text(s.savePdfToDevice),
         ),
       ),
     ];
@@ -1237,10 +1280,7 @@ class _CardioWorkoutDetailPageState extends State<CardioWorkoutDetailPage>
           onSelected: (value) async {
             switch (value) {
               case 'export_pdf':
-                await _exportPdf('pdf');
-                break;
-              case 'save_pdf':
-                await _exportPdf('save_pdf');
+                await _exportPdfWithChoice();
                 break;
               case 'apply_template':
                 _applyTemplate();
@@ -1527,9 +1567,9 @@ class _CardioWorkoutDetailPageState extends State<CardioWorkoutDetailPage>
               label: Text(_isPaused ? s.resume : s.pause),
             ),
             OutlinedButton.icon(
-              onPressed: _skipSegment,
+              onPressed: _nextSegment,
               icon: const Icon(Icons.skip_next),
-              label: Text(s.skipSegment),
+              label: Text(s.nextSegmentLabel),
             ),
             TextButton.icon(
               onPressed: _finishSession,
@@ -1701,14 +1741,46 @@ class _CardioWorkoutDetailPageState extends State<CardioWorkoutDetailPage>
               ? Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    IconButton(
-                      icon: const Icon(Icons.edit),
-                      onPressed: () => _editSegment(existing: seg, index: idx),
+                    PopupMenuButton<String>(
+                      icon: const Icon(Icons.more_vert),
+                      onSelected: (value) async {
+                        switch (value) {
+                          case 'edit':
+                            await _editSegment(existing: seg, index: idx);
+                            break;
+                          case 'duplicate':
+                            await _duplicateSegment(idx);
+                            break;
+                          case 'delete':
+                            await _deleteSegment(idx);
+                            break;
+                        }
+                      },
+                      itemBuilder: (context) => [
+                        PopupMenuItem(
+                          value: 'edit',
+                          child: ListTile(
+                            leading: const Icon(Icons.edit),
+                            title: Text(s.edit),
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'duplicate',
+                          child: ListTile(
+                            leading: const Icon(Icons.copy),
+                            title: Text(s.duplicate),
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'delete',
+                          child: ListTile(
+                            leading: const Icon(Icons.delete_outline),
+                            title: Text(s.delete),
+                          ),
+                        ),
+                      ],
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline),
-                      onPressed: () => _deleteSegment(idx),
-                    ),
+                    const SizedBox(width: 4),
                     ReorderableDragStartListener(
                       index: idx,
                       child: const Padding(

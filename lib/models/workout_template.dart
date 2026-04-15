@@ -47,6 +47,9 @@ class TemplateSet {
   @HiveField(7)
   int? seconds;
 
+  @HiveField(8, defaultValue: false)
+  bool isSuperset;
+
   TemplateSet({
     required this.exercise,
     required this.setNumber,
@@ -56,5 +59,6 @@ class TemplateSet {
     this.notes = '',
     this.isTimeBased = false,
     this.seconds,
+    this.isSuperset = false,
   });
 }

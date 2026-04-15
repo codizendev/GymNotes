@@ -1,6 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:file_selector/file_selector.dart' as fs;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:flutter/services.dart';
 import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -17,9 +20,18 @@ import '../models/scheduled_workout.dart';
 import '../models/program_block.dart';
 
 class BackupService {
-  /// Export svih podataka u JSON i share.
-  /// [shareText] i [subject] dolaze iz UI-a (lokalizirano).
-  static Future<void> exportAll({String? shareText, String? subject}) async {
+  static const MethodChannel _androidSaveChannel = MethodChannel(
+    'com.gymnotes.app/media_save',
+  );
+  static const Set<String> _excludedSettingsKeys = <String>{};
+
+  /// Export svih podataka u JSON.
+  /// [share] određuje hoće li otvoriti share sheet nakon kreiranja datoteke.
+  static Future<String> exportAll({
+    String? shareText,
+    String? subject,
+    bool share = true,
+  }) async {
     final wbox = Hive.box<Workout>('workouts');
     final sbox = Hive.box<SetEntry>('sets');
     final tbox = Hive.box<WorkoutTemplate>('templates');
@@ -85,16 +97,18 @@ class BackupService {
         'calories': c.calories,
         'zoneSeconds': c.zoneSeconds,
         'segments': c.segments
-            .map((seg) => {
-                  'label': seg.label,
-                  'type': seg.type,
-                  'durationSeconds': seg.durationSeconds,
-                  'distanceKm': seg.distanceKm,
-                  'targetSpeedKph': seg.targetSpeedKph,
-                  'inclinePercent': seg.inclinePercent,
-                  'rpe': seg.rpe,
-                  'notes': seg.notes,
-                })
+            .map(
+              (seg) => {
+                'label': seg.label,
+                'type': seg.type,
+                'durationSeconds': seg.durationSeconds,
+                'distanceKm': seg.distanceKm,
+                'targetSpeedKph': seg.targetSpeedKph,
+                'inclinePercent': seg.inclinePercent,
+                'rpe': seg.rpe,
+                'notes': seg.notes,
+              },
+            )
             .toList(),
         'environment': c.environment,
         'terrain': c.terrain,
@@ -118,16 +132,19 @@ class BackupService {
         'name': t.name,
         'notes': t.notes,
         'sets': t.sets
-            .map((ts) => {
-                  'exercise': ts.exercise,
-                  'setNumber': ts.setNumber,
-                  'reps': ts.reps,
-                  'weightKg': ts.weightKg,
-                  'rpe': ts.rpe,
-                  'notes': ts.notes,
-                  'isTimeBased': ts.isTimeBased,
-                  'seconds': ts.seconds,
-                })
+            .map(
+              (ts) => {
+                'exercise': ts.exercise,
+                'setNumber': ts.setNumber,
+                'reps': ts.reps,
+                'weightKg': ts.weightKg,
+                'rpe': ts.rpe,
+                'notes': ts.notes,
+                'isTimeBased': ts.isTimeBased,
+                'seconds': ts.seconds,
+                'isSuperset': ts.isSuperset,
+              },
+            )
             .toList(),
       });
     }
@@ -152,16 +169,18 @@ class BackupService {
         'calories': t.calories,
         'zoneSeconds': t.zoneSeconds,
         'segments': t.segments
-            .map((seg) => {
-                  'label': seg.label,
-                  'type': seg.type,
-                  'durationSeconds': seg.durationSeconds,
-                  'distanceKm': seg.distanceKm,
-                  'targetSpeedKph': seg.targetSpeedKph,
-                  'inclinePercent': seg.inclinePercent,
-                  'rpe': seg.rpe,
-                  'notes': seg.notes,
-                })
+            .map(
+              (seg) => {
+                'label': seg.label,
+                'type': seg.type,
+                'durationSeconds': seg.durationSeconds,
+                'distanceKm': seg.distanceKm,
+                'targetSpeedKph': seg.targetSpeedKph,
+                'inclinePercent': seg.inclinePercent,
+                'rpe': seg.rpe,
+                'notes': seg.notes,
+              },
+            )
             .toList(),
         'environment': t.environment,
         'terrain': t.terrain,
@@ -175,26 +194,30 @@ class BackupService {
 
     // 4) Exercises
     final exercises = ebox.values
-        .map((e) => {
-              'name': e.name,
-              'category': e.category,
-              'isFavorite': e.isFavorite,
-            })
+        .map(
+          (e) => {
+            'name': e.name,
+            'category': e.category,
+            'isFavorite': e.isFavorite,
+          },
+        )
         .toList();
 
     final readinessEntries = rbox.values
-        .map((r) => {
-              'date': r.date.toIso8601String(),
-              'score': r.score,
-              'band': r.band,
-              'loadModifier': r.loadModifier,
-              'volumeModifier': r.volumeModifier,
-              'recentVolumeAvg': r.recentVolumeAvg,
-              'baselineVolumeAvg': r.baselineVolumeAvg,
-              'avgRpe': r.avgRpe,
-              'workoutsConsidered': r.workoutsConsidered,
-              'note': r.note,
-            })
+        .map(
+          (r) => {
+            'date': r.date.toIso8601String(),
+            'score': r.score,
+            'band': r.band,
+            'loadModifier': r.loadModifier,
+            'volumeModifier': r.volumeModifier,
+            'recentVolumeAvg': r.recentVolumeAvg,
+            'baselineVolumeAvg': r.baselineVolumeAvg,
+            'avgRpe': r.avgRpe,
+            'workoutsConsidered': r.workoutsConsidered,
+            'note': r.note,
+          },
+        )
         .toList();
 
     final programBlocks = <Map<String, dynamic>>[];
@@ -220,7 +243,8 @@ class BackupService {
           'cardioMode': p.progression.cardioMode,
           'cardioStepValueSeconds': p.progression.cardioStepValueSeconds,
           'cardioStepPercent': p.progression.cardioStepPercent,
-          'cardioWorkIntervalStepSeconds': p.progression.cardioWorkIntervalStepSeconds,
+          'cardioWorkIntervalStepSeconds':
+              p.progression.cardioWorkIntervalStepSeconds,
           'cardioStepEveryWeeks': p.progression.cardioStepEveryWeeks,
           'deloadEnabled': p.progression.deloadEnabled,
           'deloadEveryWeeks': p.progression.deloadEveryWeeks,
@@ -228,59 +252,57 @@ class BackupService {
           'deloadVolumePercent': p.progression.deloadVolumePercent,
           'applyReadinessModifiers': p.progression.applyReadinessModifiers,
         },
-        'sessions': p.sessions
-            .map((session) {
-              final templateIndex = session.kind == 'cardio'
-                  ? cardioTemplateKeyToIndex[session.templateKey]
-                  : strengthTemplateKeyToIndex[session.templateKey];
-              return {
-                'id': session.id,
-                'weekDay': session.weekDay,
-                'kind': session.kind,
-                'templateKey': session.templateKey,
-                'templateIndex': templateIndex,
-                'hour': session.hour,
-                'minute': session.minute,
-                'reminderEnabled': session.reminderEnabled,
-                'note': session.note,
-              };
-            })
-            .toList(),
+        'sessions': p.sessions.map((session) {
+          final templateIndex = session.kind == 'cardio'
+              ? cardioTemplateKeyToIndex[session.templateKey]
+              : strengthTemplateKeyToIndex[session.templateKey];
+          return {
+            'id': session.id,
+            'weekDay': session.weekDay,
+            'kind': session.kind,
+            'templateKey': session.templateKey,
+            'templateIndex': templateIndex,
+            'hour': session.hour,
+            'minute': session.minute,
+            'reminderEnabled': session.reminderEnabled,
+            'note': session.note,
+          };
+        }).toList(),
       });
     }
 
-    final scheduledWorkouts = swbox.values
-        .map((s) {
-          final linkedWorkoutIndex = s.linkedWorkoutKey == null
-              ? null
-              : workoutKeyToIndex[s.linkedWorkoutKey!];
-          final templateIndex = s.kind == 'cardio'
-              ? cardioTemplateKeyToIndex[s.templateKey]
-              : strengthTemplateKeyToIndex[s.templateKey];
-          final programIndex = s.programKey == null
-              ? null
-              : programKeyToIndex[s.programKey!];
-          return {
-            'kind': s.kind,
-            'templateKey': s.templateKey,
-            'templateIndex': templateIndex,
-            'scheduledAt': s.scheduledAt.toIso8601String(),
-            'reminderEnabled': s.reminderEnabled,
-            'isCompleted': s.isCompleted,
-            'linkedWorkoutKey': s.linkedWorkoutKey,
-            'linkedWorkoutIndex': linkedWorkoutIndex,
-            'programKey': s.programKey,
-            'programIndex': programIndex,
-            'programWeek': s.programWeek,
-            'programSessionId': s.programSessionId,
-            'isAutoGenerated': s.isAutoGenerated,
-          };
-        })
-        .toList();
+    final scheduledWorkouts = swbox.values.map((s) {
+      final linkedWorkoutIndex = s.linkedWorkoutKey == null
+          ? null
+          : workoutKeyToIndex[s.linkedWorkoutKey!];
+      final templateIndex = s.kind == 'cardio'
+          ? cardioTemplateKeyToIndex[s.templateKey]
+          : strengthTemplateKeyToIndex[s.templateKey];
+      final programIndex = s.programKey == null
+          ? null
+          : programKeyToIndex[s.programKey!];
+      return {
+        'kind': s.kind,
+        'templateKey': s.templateKey,
+        'templateIndex': templateIndex,
+        'scheduledAt': s.scheduledAt.toIso8601String(),
+        'reminderEnabled': s.reminderEnabled,
+        'isCompleted': s.isCompleted,
+        'linkedWorkoutKey': s.linkedWorkoutKey,
+        'linkedWorkoutIndex': linkedWorkoutIndex,
+        'programKey': s.programKey,
+        'programIndex': programIndex,
+        'programWeek': s.programWeek,
+        'programSessionId': s.programSessionId,
+        'isAutoGenerated': s.isAutoGenerated,
+      };
+    }).toList();
     // 5) Settings – svi key/value parovi
     final settingsMap = <String, dynamic>{};
     for (final k in settings.keys) {
-      settingsMap[k.toString()] = settings.get(k);
+      final key = k.toString();
+      if (_excludedSettingsKeys.contains(key)) continue;
+      settingsMap[key] = settings.get(k);
     }
 
     final payload = {
@@ -302,21 +324,99 @@ class BackupService {
 
     // spremi temp datoteku i Share
     final dir = await getTemporaryDirectory();
-    final f = File('${dir.path}/workouts_backup_${DateTime.now().millisecondsSinceEpoch}.json');
+    final f = File(
+      '${dir.path}/workouts_backup_${DateTime.now().millisecondsSinceEpoch}.json',
+    );
     await f.writeAsString(jsonStr);
 
-    await SharePlus.instance.share(
-      ShareParams(
-        files: [XFile(f.path)],
-        text: shareText ?? 'Workout backup',
-        subject: subject ?? 'Workout backup',
-      ),
+    if (share) {
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(f.path)],
+          text: shareText ?? 'Workout backup',
+          subject: subject ?? 'Workout backup',
+        ),
+      );
+    }
+    return f.path;
+  }
+
+  static Future<String> exportAllToDevice() async {
+    final tempPath = await exportAll(share: false);
+    final source = File(tempPath);
+    final filename = source.uri.pathSegments.isEmpty
+        ? 'workouts_backup_${DateTime.now().millisecondsSinceEpoch}.json'
+        : source.uri.pathSegments.last;
+
+    if (kIsWeb) {
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(source.path)],
+          text: 'Workout backup',
+          subject: 'Workout backup',
+        ),
+      );
+      return '';
+    }
+
+    if (Platform.isAndroid) {
+      final bytes = await source.readAsBytes();
+      final ok = await _saveFileToAndroidMediaStore(
+        bytes: bytes,
+        filename: filename,
+        mimeType: 'application/json',
+      );
+      if (ok) return 'Downloads';
+    }
+
+    if (Platform.isIOS) {
+      final dir = await getApplicationDocumentsDirectory();
+      final out = File('${dir.path}/$filename');
+      await out.writeAsBytes(await source.readAsBytes(), flush: true);
+      return out.path;
+    }
+
+    final location = await fs.getSaveLocation(
+      suggestedName: filename,
+      acceptedTypeGroups: const [
+        fs.XTypeGroup(
+          label: 'JSON',
+          extensions: ['json'],
+          mimeTypes: ['application/json'],
+        ),
+      ],
     );
+    if (location == null) return '';
+
+    await source.copy(location.path);
+    return location.path;
+  }
+
+  static Future<bool> _saveFileToAndroidMediaStore({
+    required List<int> bytes,
+    required String filename,
+    required String mimeType,
+  }) async {
+    try {
+      final b64 = base64Encode(bytes);
+      final res = await _androidSaveChannel.invokeMethod('saveFile', {
+        'filename': filename,
+        'mimeType': mimeType,
+        'bytesBase64': b64,
+      });
+      return res == true;
+    } catch (e) {
+      debugPrint('MediaStore JSON save error: $e');
+      return false;
+    }
   }
 
   /// Import iz JSON-a (opcionalno briše postojeće podatke).
   static Future<void> importAll({bool replace = true}) async {
-    final res = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['json']);
+    final res = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['json'],
+    );
     if (res == null || res.files.isEmpty) return;
     final picked = res.files.single;
     final filePath = picked.path;
@@ -360,16 +460,18 @@ class BackupService {
     final indexToNewWorkoutKey = <int, int>{};
     for (var i = 0; i < workouts.length; i++) {
       final w = workouts[i] as Map;
-      final newKey = await wbox.add(Workout(
-        date: DateTime.parse(w['date'] as String),
-        title: (w['title'] ?? '') as String,
-        notes: (w['notes'] ?? '') as String,
-        kind: (w['kind'] ?? 'strength') as String,
-      )
-        ..totalSets = (w['totalSets'] ?? 0) as int
-        ..totalReps = (w['totalReps'] ?? 0) as int
-        ..totalVolume = ((w['totalVolume'] ?? 0.0) as num).toDouble()
-        ..feelingScore = ((w['feelingScore'] ?? 7) as num).toInt());
+      final newKey = await wbox.add(
+        Workout(
+            date: DateTime.parse(w['date'] as String),
+            title: (w['title'] ?? '') as String,
+            notes: (w['notes'] ?? '') as String,
+            kind: (w['kind'] ?? 'strength') as String,
+          )
+          ..totalSets = (w['totalSets'] ?? 0) as int
+          ..totalReps = (w['totalReps'] ?? 0) as int
+          ..totalVolume = ((w['totalVolume'] ?? 0.0) as num).toDouble()
+          ..feelingScore = ((w['feelingScore'] ?? 7) as num).toInt(),
+      );
       indexToNewWorkoutKey[i] = newKey;
     }
 
@@ -379,18 +481,20 @@ class BackupService {
       final m = s as Map;
       final wi = (m['workoutIndex'] ?? -1) as int;
       if (!indexToNewWorkoutKey.containsKey(wi)) continue;
-      await sbox.add(SetEntry(
-        workoutKey: indexToNewWorkoutKey[wi]!,
-        exercise: (m['exercise'] ?? '') as String,
-        setNumber: (m['setNumber'] ?? 1) as int,
-        reps: (m['reps'] ?? 0) as int,
-        weightKg: ((m['weightKg'] ?? 0.0) as num).toDouble(),
-        rpe: (m['rpe'] == null) ? null : ((m['rpe'] as num).toDouble()),
-        notes: (m['notes'] ?? '') as String,
-        isTimeBased: (m['isTimeBased'] ?? false) as bool,
-        seconds: (m['seconds'] == null) ? null : (m['seconds'] as int),
-        isCompleted: (m['isCompleted'] ?? false) as bool,
-      ));
+      await sbox.add(
+        SetEntry(
+          workoutKey: indexToNewWorkoutKey[wi]!,
+          exercise: (m['exercise'] ?? '') as String,
+          setNumber: (m['setNumber'] ?? 1) as int,
+          reps: (m['reps'] ?? 0) as int,
+          weightKg: ((m['weightKg'] ?? 0.0) as num).toDouble(),
+          rpe: (m['rpe'] == null) ? null : ((m['rpe'] as num).toDouble()),
+          notes: (m['notes'] ?? '') as String,
+          isTimeBased: (m['isTimeBased'] ?? false) as bool,
+          seconds: (m['seconds'] == null) ? null : (m['seconds'] as int),
+          isCompleted: (m['isCompleted'] ?? false) as bool,
+        ),
+      );
     }
 
     final List cardioEntries = (json['cardioEntries'] as List?) ?? [];
@@ -414,29 +518,31 @@ class BackupService {
           )
           .toList();
 
-      await cbox.add(CardioEntry(
-        workoutKey: indexToNewWorkoutKey[wi]!,
-        activity: (m['activity'] ?? '') as String,
-        durationSeconds: (m['durationSeconds'] ?? 0) as int,
-        distanceKm: (m['distanceKm'] as num?)?.toDouble(),
-        elevationGainM: (m['elevationGainM'] as num?)?.toDouble(),
-        inclinePercent: (m['inclinePercent'] as num?)?.toDouble(),
-        avgHeartRate: m['avgHeartRate'] as int?,
-        maxHeartRate: m['maxHeartRate'] as int?,
-        rpe: (m['rpe'] as num?)?.toDouble(),
-        calories: (m['calories'] as num?)?.toDouble(),
-        zoneSeconds: (m['zoneSeconds'] as List?)
-            ?.map((e) => (e as num).toInt())
-            .toList(),
-        segments: segments,
-        environment: (m['environment'] ?? '') as String,
-        terrain: (m['terrain'] ?? '') as String,
-        weather: (m['weather'] ?? '') as String,
-        equipment: (m['equipment'] ?? '') as String,
-        mood: (m['mood'] ?? '') as String,
-        energy: m['energy'] as int?,
-        notes: (m['notes'] ?? '') as String,
-      ));
+      await cbox.add(
+        CardioEntry(
+          workoutKey: indexToNewWorkoutKey[wi]!,
+          activity: (m['activity'] ?? '') as String,
+          durationSeconds: (m['durationSeconds'] ?? 0) as int,
+          distanceKm: (m['distanceKm'] as num?)?.toDouble(),
+          elevationGainM: (m['elevationGainM'] as num?)?.toDouble(),
+          inclinePercent: (m['inclinePercent'] as num?)?.toDouble(),
+          avgHeartRate: m['avgHeartRate'] as int?,
+          maxHeartRate: m['maxHeartRate'] as int?,
+          rpe: (m['rpe'] as num?)?.toDouble(),
+          calories: (m['calories'] as num?)?.toDouble(),
+          zoneSeconds: (m['zoneSeconds'] as List?)
+              ?.map((e) => (e as num).toInt())
+              .toList(),
+          segments: segments,
+          environment: (m['environment'] ?? '') as String,
+          terrain: (m['terrain'] ?? '') as String,
+          weather: (m['weather'] ?? '') as String,
+          equipment: (m['equipment'] ?? '') as String,
+          mood: (m['mood'] ?? '') as String,
+          energy: m['energy'] as int?,
+          notes: (m['notes'] ?? '') as String,
+        ),
+      );
     }
 
     // Templates
@@ -457,13 +563,16 @@ class BackupService {
           notes: (m['notes'] ?? '') as String,
           isTimeBased: (m['isTimeBased'] ?? false) as bool,
           seconds: (m['seconds'] == null) ? null : (m['seconds'] as int),
+          isSuperset: (m['isSuperset'] ?? false) as bool,
         );
       }).toList();
-      final newTemplateKey = await tbox.add(WorkoutTemplate(
-        name: (tm['name'] ?? '') as String,
-        notes: (tm['notes'] ?? '') as String,
-        sets: setsList,
-      ));
+      final newTemplateKey = await tbox.add(
+        WorkoutTemplate(
+          name: (tm['name'] ?? '') as String,
+          notes: (tm['notes'] ?? '') as String,
+          sets: setsList,
+        ),
+      );
       indexToStrengthTemplateKey[i] = newTemplateKey;
     }
 
@@ -488,29 +597,31 @@ class BackupService {
           )
           .toList();
 
-      final newTemplateKey = await ctbox.add(CardioTemplate(
-        name: (tm['name'] ?? '') as String,
-        activity: (tm['activity'] ?? '') as String,
-        durationSeconds: (tm['durationSeconds'] ?? 0) as int,
-        distanceKm: (tm['distanceKm'] as num?)?.toDouble(),
-        elevationGainM: (tm['elevationGainM'] as num?)?.toDouble(),
-        inclinePercent: (tm['inclinePercent'] as num?)?.toDouble(),
-        avgHeartRate: tm['avgHeartRate'] as int?,
-        maxHeartRate: tm['maxHeartRate'] as int?,
-        rpe: (tm['rpe'] as num?)?.toDouble(),
-        calories: (tm['calories'] as num?)?.toDouble(),
-        zoneSeconds: (tm['zoneSeconds'] as List?)
-            ?.map((e) => (e as num).toInt())
-            .toList(),
-        segments: segments,
-        environment: (tm['environment'] ?? '') as String,
-        terrain: (tm['terrain'] ?? '') as String,
-        weather: (tm['weather'] ?? '') as String,
-        equipment: (tm['equipment'] ?? '') as String,
-        mood: (tm['mood'] ?? '') as String,
-        energy: tm['energy'] as int?,
-        notes: (tm['notes'] ?? '') as String,
-      ));
+      final newTemplateKey = await ctbox.add(
+        CardioTemplate(
+          name: (tm['name'] ?? '') as String,
+          activity: (tm['activity'] ?? '') as String,
+          durationSeconds: (tm['durationSeconds'] ?? 0) as int,
+          distanceKm: (tm['distanceKm'] as num?)?.toDouble(),
+          elevationGainM: (tm['elevationGainM'] as num?)?.toDouble(),
+          inclinePercent: (tm['inclinePercent'] as num?)?.toDouble(),
+          avgHeartRate: tm['avgHeartRate'] as int?,
+          maxHeartRate: tm['maxHeartRate'] as int?,
+          rpe: (tm['rpe'] as num?)?.toDouble(),
+          calories: (tm['calories'] as num?)?.toDouble(),
+          zoneSeconds: (tm['zoneSeconds'] as List?)
+              ?.map((e) => (e as num).toInt())
+              .toList(),
+          segments: segments,
+          environment: (tm['environment'] ?? '') as String,
+          terrain: (tm['terrain'] ?? '') as String,
+          weather: (tm['weather'] ?? '') as String,
+          equipment: (tm['equipment'] ?? '') as String,
+          mood: (tm['mood'] ?? '') as String,
+          energy: tm['energy'] as int?,
+          notes: (tm['notes'] ?? '') as String,
+        ),
+      );
       indexToCardioTemplateKey[i] = newTemplateKey;
     }
 
@@ -518,30 +629,34 @@ class BackupService {
     final List exercises = (json['exercises'] as List?) ?? [];
     for (final e in exercises) {
       final m = e as Map;
-      await ebox.add(Exercise(
-        name: (m['name'] ?? '') as String,
-        category: (m['category'] ?? '') as String,
-        isFavorite: (m['isFavorite'] ?? false) as bool,
-      ));
+      await ebox.add(
+        Exercise(
+          name: (m['name'] ?? '') as String,
+          category: (m['category'] ?? '') as String,
+          isFavorite: (m['isFavorite'] ?? false) as bool,
+        ),
+      );
     }
-
 
     // Readiness entries
     final List readinessEntries = (json['readiness'] as List?) ?? [];
     for (final r in readinessEntries) {
       final m = r as Map;
-      await rbox.add(ReadinessEntry(
-        date: DateTime.parse(m['date'] as String),
-        score: ((m['score'] ?? 0.0) as num).toDouble(),
-        band: (m['band'] ?? 'amber') as String,
-        loadModifier: ((m['loadModifier'] ?? 1.0) as num).toDouble(),
-        volumeModifier: ((m['volumeModifier'] ?? 1.0) as num).toDouble(),
-        recentVolumeAvg: ((m['recentVolumeAvg'] ?? 0.0) as num).toDouble(),
-        baselineVolumeAvg: ((m['baselineVolumeAvg'] ?? 0.0) as num).toDouble(),
-        avgRpe: ((m['avgRpe'] ?? 0.0) as num).toDouble(),
-        workoutsConsidered: (m['workoutsConsidered'] ?? 0) as int,
-        note: (m['note'] ?? '') as String,
-      ));
+      await rbox.add(
+        ReadinessEntry(
+          date: DateTime.parse(m['date'] as String),
+          score: ((m['score'] ?? 0.0) as num).toDouble(),
+          band: (m['band'] ?? 'amber') as String,
+          loadModifier: ((m['loadModifier'] ?? 1.0) as num).toDouble(),
+          volumeModifier: ((m['volumeModifier'] ?? 1.0) as num).toDouble(),
+          recentVolumeAvg: ((m['recentVolumeAvg'] ?? 0.0) as num).toDouble(),
+          baselineVolumeAvg: ((m['baselineVolumeAvg'] ?? 0.0) as num)
+              .toDouble(),
+          avgRpe: ((m['avgRpe'] ?? 0.0) as num).toDouble(),
+          workoutsConsidered: (m['workoutsConsidered'] ?? 0) as int,
+          note: (m['note'] ?? '') as String,
+        ),
+      );
     }
 
     final indexToProgramKey = <int, int>{};
@@ -563,7 +678,10 @@ class BackupService {
             }
             if (templateKey < 0) return null;
             return ProgramSessionPlan(
-              id: _readString(m['id'], DateTime.now().microsecondsSinceEpoch.toString()),
+              id: _readString(
+                m['id'],
+                DateTime.now().microsecondsSinceEpoch.toString(),
+              ),
               weekDay: _clampInt(_readInt(m['weekDay'], 1), 1, 7),
               kind: kind == 'cardio' ? 'cardio' : 'strength',
               templateKey: templateKey,
@@ -577,31 +695,70 @@ class BackupService {
           .toList();
       final progression = ProgramProgressionConfig(
         strengthMode: _readString(progressionMap?['strengthMode'], 'fixed_kg'),
-        strengthStepValueKg: _readDouble(progressionMap?['strengthStepValueKg'], 2.5),
-        strengthStepPercent: _readDouble(progressionMap?['strengthStepPercent'], 2.5),
-        strengthStepEveryWeeks: _readInt(progressionMap?['strengthStepEveryWeeks'], 1),
-        strengthRoundingKg: _readDouble(progressionMap?['strengthRoundingKg'], 0.5),
-        cardioMode: _readString(progressionMap?['cardioMode'], 'duration_percent'),
-        cardioStepValueSeconds: _readInt(progressionMap?['cardioStepValueSeconds'], 60),
+        strengthStepValueKg: _readDouble(
+          progressionMap?['strengthStepValueKg'],
+          2.5,
+        ),
+        strengthStepPercent: _readDouble(
+          progressionMap?['strengthStepPercent'],
+          2.5,
+        ),
+        strengthStepEveryWeeks: _readInt(
+          progressionMap?['strengthStepEveryWeeks'],
+          1,
+        ),
+        strengthRoundingKg: _readDouble(
+          progressionMap?['strengthRoundingKg'],
+          0.5,
+        ),
+        cardioMode: _readString(
+          progressionMap?['cardioMode'],
+          'duration_percent',
+        ),
+        cardioStepValueSeconds: _readInt(
+          progressionMap?['cardioStepValueSeconds'],
+          60,
+        ),
         cardioStepPercent: _readDouble(progressionMap?['cardioStepPercent'], 5),
-        cardioWorkIntervalStepSeconds: _readInt(progressionMap?['cardioWorkIntervalStepSeconds'], 10),
-        cardioStepEveryWeeks: _readInt(progressionMap?['cardioStepEveryWeeks'], 1),
+        cardioWorkIntervalStepSeconds: _readInt(
+          progressionMap?['cardioWorkIntervalStepSeconds'],
+          10,
+        ),
+        cardioStepEveryWeeks: _readInt(
+          progressionMap?['cardioStepEveryWeeks'],
+          1,
+        ),
         deloadEnabled: _readBool(progressionMap?['deloadEnabled'], false),
         deloadEveryWeeks: _readInt(progressionMap?['deloadEveryWeeks'], 4),
-        deloadLoadPercent: _readDouble(progressionMap?['deloadLoadPercent'], -10),
-        deloadVolumePercent: _readDouble(progressionMap?['deloadVolumePercent'], -15),
-        applyReadinessModifiers: _readBool(progressionMap?['applyReadinessModifiers'], false),
+        deloadLoadPercent: _readDouble(
+          progressionMap?['deloadLoadPercent'],
+          -10,
+        ),
+        deloadVolumePercent: _readDouble(
+          progressionMap?['deloadVolumePercent'],
+          -15,
+        ),
+        applyReadinessModifiers: _readBool(
+          progressionMap?['applyReadinessModifiers'],
+          false,
+        ),
       );
-      final newProgramKey = await pbox.add(ProgramBlock(
-        name: _readString(p['name'], 'Program'),
-        startDate: DateTime.tryParse(_readString(p['startDate'], '')) ?? DateTime.now(),
-        durationWeeks: _clampInt(_readInt(p['durationWeeks'], 8), 1, 52),
-        sessions: sessions,
-        progression: progression,
-        isActive: _readBool(p['isActive'], true),
-        generatedUntilWeek: _readInt(p['generatedUntilWeek'], 0),
-        createdAt: DateTime.tryParse(_readString(p['createdAt'], '')) ?? DateTime.now(),
-      ));
+      final newProgramKey = await pbox.add(
+        ProgramBlock(
+          name: _readString(p['name'], 'Program'),
+          startDate:
+              DateTime.tryParse(_readString(p['startDate'], '')) ??
+              DateTime.now(),
+          durationWeeks: _clampInt(_readInt(p['durationWeeks'], 8), 1, 52),
+          sessions: sessions,
+          progression: progression,
+          isActive: _readBool(p['isActive'], true),
+          generatedUntilWeek: _readInt(p['generatedUntilWeek'], 0),
+          createdAt:
+              DateTime.tryParse(_readString(p['createdAt'], '')) ??
+              DateTime.now(),
+        ),
+      );
       indexToProgramKey[i] = newProgramKey;
     }
 
@@ -627,27 +784,32 @@ class BackupService {
           ? indexToProgramKey[programIndex]
           : (m['programKey'] as int?);
       final programWeek = _readInt(m['programWeek'], -1);
-      await swbox.add(ScheduledWorkout(
-        kind: kind,
-        templateKey: templateKey,
-        scheduledAt: scheduledAt,
-        reminderEnabled: _readBool(m['reminderEnabled'], true),
-        isCompleted: _readBool(m['isCompleted'], false),
-        linkedWorkoutKey: linkedWorkoutKey,
-        programKey: programKey,
-        programWeek: programWeek >= 0 ? programWeek : null,
-        programSessionId: _readString(m['programSessionId'], '').trim().isEmpty
-            ? null
-            : _readString(m['programSessionId'], ''),
-        isAutoGenerated: _readBool(m['isAutoGenerated'], false),
-      ));
+      await swbox.add(
+        ScheduledWorkout(
+          kind: kind,
+          templateKey: templateKey,
+          scheduledAt: scheduledAt,
+          reminderEnabled: _readBool(m['reminderEnabled'], true),
+          isCompleted: _readBool(m['isCompleted'], false),
+          linkedWorkoutKey: linkedWorkoutKey,
+          programKey: programKey,
+          programWeek: programWeek >= 0 ? programWeek : null,
+          programSessionId:
+              _readString(m['programSessionId'], '').trim().isEmpty
+              ? null
+              : _readString(m['programSessionId'], ''),
+          isAutoGenerated: _readBool(m['isAutoGenerated'], false),
+        ),
+      );
     }
 
     // Settings
     final Map? settingsMap = json['settings'] as Map?;
     if (settingsMap != null) {
       for (final entry in settingsMap.entries) {
-        await settings.put(entry.key, entry.value);
+        final key = entry.key.toString();
+        if (_excludedSettingsKeys.contains(key)) continue;
+        await settings.put(key, entry.value);
       }
     }
   }
@@ -688,6 +850,3 @@ class BackupService {
     return fallback;
   }
 }
-
-
-

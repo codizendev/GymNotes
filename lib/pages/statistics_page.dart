@@ -7,7 +7,6 @@ import '../models/set_entry.dart';
 import '../models/cardio_entry.dart';
 import '../models/exercise.dart'; // For exercise autocomplete.
 import 'workout_detail_page.dart';
-import '../services/pro_service.dart';
 
 // Localization.
 import '../l10n/l10n.dart';
@@ -30,7 +29,6 @@ class _StatisticsPageState extends State<StatisticsPage> {
   late final Box<SetEntry> sbox;
   late final Box<Exercise> ebox;
   late final Box<CardioEntry> cbox;
-  late final Box settings;
 
   _Period period = _Period.week;
 
@@ -48,7 +46,6 @@ class _StatisticsPageState extends State<StatisticsPage> {
     // Box can be empty; keep for autocomplete.
     ebox = Hive.box<Exercise>('exercises');
     cbox = Hive.box<CardioEntry>('cardio_entries');
-    settings = Hive.box('settings');
   }
 
   int get _days => period == _Period.week ? 7 : 30;
@@ -457,7 +454,6 @@ class _StatisticsPageState extends State<StatisticsPage> {
       sbox.listenable(),
       ebox.listenable(),
       cbox.listenable(),
-      ProService.listenable(settings),
     ]);
     final bottomInset = MediaQuery.of(context).viewPadding.bottom;
 
@@ -477,7 +473,6 @@ class _StatisticsPageState extends State<StatisticsPage> {
         final hasPerDayActivity = workoutsPerDay.any((d) => d.count > 0);
         final maxPerDay = workoutsPerDay.fold<int>(0, (m, d) => d.count > m ? d.count : m);
         final perDayMaxY = (maxPerDay == 0 ? 1 : maxPerDay + 1).toDouble();
-        final isPro = ProService.isPro(settings);
 
         // exercise progress data
         final now = DateTime.now();
@@ -854,20 +849,17 @@ class _StatisticsPageState extends State<StatisticsPage> {
                   }),
 
                 const SizedBox(height: 28),
-
-                if (!isPro)
-                  _buildProLockedCard(s)
-                else ...[
+                // ===============================
+                //  EXERCISE PROGRESS (NOVO)
+                // ===============================
+                Text(
+                  s.exerciseProgressTitle,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 8),
                   // ===============================
-                  //  EXERCISE PROGRESS (NOVO)
+                  // Exercise picker + Metric + Period + Smoothing
                   // ===============================
-                  Text(
-                    s.exerciseProgressTitle,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 8),
-
-                // Exercise picker + Metric + Period + Smoothing
                 LayoutBuilder(
                   builder: (context, constraints) {
                     final isNarrow = constraints.maxWidth < 600;
@@ -1120,40 +1112,10 @@ class _StatisticsPageState extends State<StatisticsPage> {
                   ),
                 ],
               ],
-              ],
             ),
           ),
         );
       },
-    );
-  }
-
-  Widget _buildProLockedCard(AppLocalizations s) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Theme.of(context).dividerColor),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            s.proFeatureAdvancedStats,
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 6),
-          Text('${s.proFeatureLocked} ${s.proFeatureAdvancedStats}'),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: () => ProService.showUpsell(context, settings, feature: s.proFeatureAdvancedStats),
-              child: Text(s.proMenuUpgrade),
-            ),
-          ),
-        ],
-      ),
     );
   }
 

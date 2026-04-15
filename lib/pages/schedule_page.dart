@@ -261,21 +261,32 @@ class _SchedulePageState extends State<SchedulePage> {
     var totalSets = 0;
     var totalReps = 0;
     var totalVolume = 0.0;
+    final setCountByExercise = <String, int>{};
+    for (final set in template.sets) {
+      if (set.isTimeBased) continue;
+      final key = set.exercise.trim().toLowerCase();
+      if (key.isEmpty) continue;
+      setCountByExercise[key] = (setCountByExercise[key] ?? 0) + 1;
+    }
     for (final templateSet in template.sets) {
+      final exerciseKey = templateSet.exercise.trim().toLowerCase();
+      final requiredSetCount = setCountByExercise[exerciseKey] ?? 1;
       final tuned = ProgramService.tuneStrengthSet(
         schedule: schedule,
         baseSet: templateSet,
+        requiredSetCount: requiredSetCount,
       );
       final entry = SetEntry(
         workoutKey: workoutKey,
         exercise: templateSet.exercise,
         setNumber: templateSet.setNumber,
-        reps: tuned.reps,
+        reps: templateSet.isTimeBased ? 0 : tuned.reps,
         weightKg: tuned.weightKg,
         rpe: templateSet.rpe,
         notes: templateSet.notes,
         isTimeBased: templateSet.isTimeBased,
         seconds: tuned.seconds,
+        isSuperset: templateSet.isSuperset,
       );
       await sbox.add(entry);
       totalSets += 1;

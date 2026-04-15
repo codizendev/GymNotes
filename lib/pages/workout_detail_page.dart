@@ -11,7 +11,6 @@ import '../models/exercise.dart';
 import '../models/workout_template.dart';
 import '../models/scheduled_workout.dart';
 import '../services/export_service.dart';
-import '../services/pro_service.dart';
 import '../services/workout_reminder_service.dart';
 import '../l10n/l10n.dart';
 import 'exercise_history_page.dart';
@@ -30,6 +29,7 @@ class WorkoutDetailPage extends StatefulWidget {
 class _WorkoutDetailPageState extends State<WorkoutDetailPage> {
   static const double _fabHeight = 56;
   static const double _fabSpace = kFloatingActionButtonMargin + _fabHeight;
+  static const bool _showProgressionSuggestionUi = false;
 
   late final Box<Workout> wbox;
   late final Box<SetEntry> sbox;
@@ -911,7 +911,45 @@ class _WorkoutDetailPageState extends State<WorkoutDetailPage> {
     );
   }
 
-  Future<void> _export(String type) async {
+  Future<String?> _pickPdfExportAction() async {
+    final s = AppLocalizations.of(context);
+    return showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: Text(
+                s.exportSharePdf,
+                style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.share),
+              title: const Text('Share'),
+              onTap: () => Navigator.pop(ctx, 'share'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.download),
+              title: Text(s.savePdfToDevice),
+              onTap: () => Navigator.pop(ctx, 'download'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.close),
+              title: Text(s.cancel),
+              onTap: () => Navigator.pop(ctx),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _exportPdfWithChoice() async {
     final s = AppLocalizations.of(context);
     final sets = _setsForWorkout();
     if (sets.isEmpty) {
@@ -922,9 +960,11 @@ class _WorkoutDetailPageState extends State<WorkoutDetailPage> {
     }
 
     try {
-      if (type == 'pdf' || type == 'export_pdf') {
+      final action = await _pickPdfExportAction();
+      if (action == null) return;
+      if (action == 'share') {
         await shareWorkoutPdf(workout, sets);
-      } else if (type == 'save_pdf') {
+      } else if (action == 'download') {
         final location = await saveWorkoutPdfToDevice(workout, sets);
         if (!mounted) return;
         final message = location.isEmpty
@@ -951,13 +991,6 @@ class _WorkoutDetailPageState extends State<WorkoutDetailPage> {
           title: Text(s.exportSharePdf),
         ),
       ),
-      PopupMenuItem(
-        value: 'save_pdf',
-        child: ListTile(
-          leading: const Icon(Icons.download),
-          title: Text(s.savePdfToDevice),
-        ),
-      ),
       const PopupMenuDivider(),
       PopupMenuItem(
         value: 'apply_template',
@@ -979,8 +1012,7 @@ class _WorkoutDetailPageState extends State<WorkoutDetailPage> {
   Future<void> _handleActionMenu(String value) async {
     switch (value) {
       case 'export_pdf':
-      case 'save_pdf':
-        await _export(value);
+        await _exportPdfWithChoice();
         break;
       case 'apply_template':
         await _applyTemplate();
@@ -1068,7 +1100,7 @@ class _WorkoutDetailPageState extends State<WorkoutDetailPage> {
           isTimeBased: ts.isTimeBased,
           seconds: ts.seconds,
           isCompleted: false,
-          isSuperset: false,
+          isSuperset: ts.isSuperset,
         ),
       );
     }
@@ -1084,13 +1116,6 @@ class _WorkoutDetailPageState extends State<WorkoutDetailPage> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(s.workoutHasNoSetsForTemplate)));
-      return;
-    }
-    if (!await ProService.ensureTemplateCapacity(
-      context,
-      settings,
-      tbox.length,
-    )) {
       return;
     }
     if (!mounted) return;
@@ -1153,6 +1178,7 @@ class _WorkoutDetailPageState extends State<WorkoutDetailPage> {
             notes: set.notes,
             isTimeBased: set.isTimeBased,
             seconds: set.seconds,
+            isSuperset: set.isSuperset,
           ),
       ],
     );
@@ -1193,7 +1219,7 @@ class _WorkoutDetailPageState extends State<WorkoutDetailPage> {
   }
 
   bool _autoProgressionEnabled() {
-    return (settings.get('autoProgressionEnabled') as bool?) ?? true;
+    return (settings.get('autoProgressionEnabled') as bool?) ?? false;
   }
 
   double _plateIncrement() {
@@ -1333,25 +1359,42 @@ class _WorkoutDetailPageState extends State<WorkoutDetailPage> {
           .length;
       final lastComfortable =
           last.reps >= targetReps && (last.rpe == null || last.rpe! <= 8.5);
+      final anchorWeight = _roundToIncrement(last.weightKg);
 
       if (missesOrHighRpe >= 2) {
-        suggestedWeight = _roundToIncrement(set.weightKg * 0.95);
-        if ((set.weightKg - suggestedWeight).abs() < 0.001 &&
-            set.weightKg > 0) {
-          suggestedWeight = _roundToIncrement(set.weightKg - increment);
+        var targetWeight = _roundToIncrement(anchorWeight * 0.95);
+        if ((anchorWeight - targetWeight).abs() < 0.001 &&
+            anchorWeight > 0) {
+          targetWeight = _roundToIncrement(anchorWeight - increment);
         }
+        // In deload mode, never suggest adding load back.
+        suggestedWeight = set.weightKg <= targetWeight
+            ? _roundToIncrement(set.weightKg)
+            : targetWeight;
         rationale = 'Recent sessions show misses/high RPE. Suggest deload.';
         label = 'deload';
       } else if (lastComfortable) {
-        suggestedWeight = _roundToIncrement(set.weightKg + increment);
+        final targetWeight = _roundToIncrement(anchorWeight + increment);
+        // Do not stack increases if current set is already at/above target.
+        suggestedWeight = set.weightKg >= targetWeight
+            ? _roundToIncrement(set.weightKg)
+            : targetWeight;
         rationale = 'Last session hit target comfortably. Suggest increase.';
         label = 'increase';
       } else if (last.rpe != null && last.rpe! >= 9.0) {
-        suggestedWeight = _roundToIncrement(set.weightKg - increment);
+        final targetWeight = _roundToIncrement(anchorWeight - increment);
+        // In reduce mode, never suggest increasing load.
+        suggestedWeight = set.weightKg <= targetWeight
+            ? _roundToIncrement(set.weightKg)
+            : targetWeight;
         rationale = 'Last session effort was high. Suggest lighter load.';
         label = 'reduce';
       } else if (last.reps < targetReps) {
-        suggestedWeight = _roundToIncrement(set.weightKg);
+        final targetWeight = _roundToIncrement(anchorWeight);
+        // Repeat mode should not suggest going heavier than last comparable load.
+        suggestedWeight = set.weightKg <= targetWeight
+            ? _roundToIncrement(set.weightKg)
+            : targetWeight;
         rationale = 'Repeat the target before increasing load.';
         label = 'repeat';
       }
@@ -1518,7 +1561,9 @@ class _WorkoutDetailPageState extends State<WorkoutDetailPage> {
                     ],
                   ),
                 ),
-                if (!completed && progressSuggestions.isNotEmpty)
+                if (_showProgressionSuggestionUi &&
+                    !completed &&
+                    suggestionChangeCount > 0)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                     child: Card(
@@ -1766,11 +1811,11 @@ class _WorkoutDetailPageState extends State<WorkoutDetailPage> {
                                                 Text(
                                                   '$details$extras',
                                                   style: subtitleStyle,
-                                                  maxLines: 3,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
+                                                  softWrap: true,
                                                 ),
-                                                if (suggestion != null)
+                                                if (_showProgressionSuggestionUi &&
+                                                    suggestion != null &&
+                                                    suggestion.differsFrom(se))
                                                   Padding(
                                                     padding:
                                                         const EdgeInsets.only(
@@ -1787,9 +1832,7 @@ class _WorkoutDetailPageState extends State<WorkoutDetailPage> {
                                                               context,
                                                             ).colorScheme.primary,
                                                           ),
-                                                      maxLines: 2,
-                                                      overflow: TextOverflow
-                                                          .ellipsis,
+                                                      softWrap: true,
                                                     ),
                                                   ),
                                                 if (pr.any)

@@ -9,7 +9,6 @@ import '../models/workout.dart';
 import '../models/set_entry.dart';
 import '../models/workout_template.dart';
 import '../services/export_service.dart' show importPayloadFromPdfBytes;
-import '../services/pro_service.dart';
 import '../l10n/l10n.dart';
 
 class ImportPdfScreen extends StatefulWidget {
@@ -118,8 +117,6 @@ class _ImportPdfScreenState extends State<ImportPdfScreen> {
   Future<void> _saveAsTemplate() async {
     if (_preview == null) return;
     final tbox = Hive.box<WorkoutTemplate>('templates');
-    final settings = Hive.box('settings');
-    if (!await ProService.ensureTemplateCapacity(context, settings, tbox.length)) return;
 
     final w = _preview!.workout;
     final sets = _preview!.sets;
@@ -142,6 +139,7 @@ class _ImportPdfScreenState extends State<ImportPdfScreen> {
             notes: entry.notes,
             isTimeBased: entry.isTimeBased,
             seconds: entry.seconds,
+            isSuperset: entry.isSuperset,
           )
       ],
     );

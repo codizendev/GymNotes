@@ -27,11 +27,9 @@ import 'programs_page.dart';
 import '../services/backup_service.dart';
 import '../services/app_capture_service.dart';
 import '../services/app_logger.dart';
-import '../services/cardio_notification_service.dart';
 import '../services/feedback_service.dart';
 import '../services/readiness_service.dart';
-import '../services/workout_reminder_service.dart';
-import '../services/pro_service.dart';
+import '../services/program_service.dart';
 
 // localization
 import '../l10n/l10n.dart';
@@ -60,14 +58,12 @@ class _HomePageState extends State<HomePage> {
   late final Listenable _homeListenable;
 
   int _weeklyGoal = 4;
-  bool _autoProgressionEnabled = true;
+  bool _autoProgressionEnabled = false;
   double _plateIncrement = 2.5;
   double _weightIncreaseKg = 2.5;
   bool _useCustomIncrease = false;
   String _volumeMode = 'auto'; // 'auto' or 'fixed'
   Map<String, double> _categoryIncrements = {};
-
-  ReadinessEntry? _readiness;
 
   @override
   void initState() {
@@ -89,26 +85,33 @@ class _HomePageState extends State<HomePage> {
     );
 
     _weeklyGoal = (settings.get('weeklyGoal') as int?)?.clamp(1, 14) ?? 4;
-    _autoProgressionEnabled = (settings.get('autoProgressionEnabled') as bool?) ?? true;
-    _plateIncrement = (settings.get('plateIncrement') as num?)?.toDouble() ?? 2.5;
+    _autoProgressionEnabled =
+        (settings.get('autoProgressionEnabled') as bool?) ?? false;
+    _plateIncrement =
+        (settings.get('plateIncrement') as num?)?.toDouble() ?? 2.5;
     _useCustomIncrease = (settings.get('useCustomIncrease') as bool?) ?? false;
-    final storedIncrease = (settings.get('weightIncreaseKg') as num?)?.toDouble();
+    final storedIncrease = (settings.get('weightIncreaseKg') as num?)
+        ?.toDouble();
     _weightIncreaseKg = storedIncrease ?? _plateIncrement;
-    if (!_useCustomIncrease && storedIncrease != null && (_plateIncrement - storedIncrease).abs() > 0.001) {
+    if (!_useCustomIncrease &&
+        storedIncrease != null &&
+        (_plateIncrement - storedIncrease).abs() > 0.001) {
       _useCustomIncrease = true;
     }
     if (!_useCustomIncrease) {
       _weightIncreaseKg = _plateIncrement;
     }
-    _volumeMode = (settings.get('volumeMode') as String?) ?? 'auto';
-    _categoryIncrements = _parseCategoryIncrements(settings.get('categoryIncrements'));
+    final storedVolumeMode = (settings.get('volumeMode') as String?) ?? 'auto';
+    _volumeMode = storedVolumeMode == 'fixed' ? 'fixed' : 'auto';
+    _categoryIncrements = _parseCategoryIncrements(
+      settings.get('categoryIncrements'),
+    );
     _homeListenable = Listenable.merge([
       wbox.listenable(),
       sbox.listenable(),
       rbox.listenable(),
       cbox.listenable(),
       _scheduleBox().listenable(),
-      ProService.listenable(settings),
     ]);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -130,8 +133,14 @@ class _HomePageState extends State<HomePage> {
         title: Text(s.permissionsPromptTitle),
         content: Text(s.permissionsPromptBody),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(s.permissionsNotNow)),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(s.permissionsAllow)),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(s.permissionsNotNow),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(s.permissionsAllow),
+          ),
         ],
       ),
     );
@@ -139,27 +148,6 @@ class _HomePageState extends State<HomePage> {
 
     if (!kIsWeb) {
       await Permission.notification.request();
-    }
-    await WorkoutReminderService.instance.requestExactAlarmsPermission();
-
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-      final canOverlay = await CardioNotificationService.instance.canDrawOverlay();
-      if (!canOverlay && mounted) {
-        final openSettings = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: Text(s.overlayPromptTitle),
-            content: Text(s.overlayPromptBody),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(s.permissionsNotNow)),
-              FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(s.overlayOpenSettings)),
-            ],
-          ),
-        );
-        if (openSettings == true) {
-          await CardioNotificationService.instance.openOverlaySettings();
-        }
-      }
     }
   }
 
@@ -175,7 +163,10 @@ class _HomePageState extends State<HomePage> {
     } catch (error, stackTrace) {
       AppLogger.warn(
         'Failed to read package info for about dialog',
-        context: <String, Object?>{'error': error.toString(), 'stack': stackTrace.toString()},
+        context: <String, Object?>{
+          'error': error.toString(),
+          'stack': stackTrace.toString(),
+        },
       );
     }
     if (!mounted) return;
@@ -193,14 +184,18 @@ class _HomePageState extends State<HomePage> {
               const SizedBox(height: 12),
               Text(
                 s.privacyPolicyTitle,
-                style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               const SizedBox(height: 6),
               Text(s.privacyPolicyBody),
               const SizedBox(height: 12),
               Text(
                 'Build info',
-                style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               const SizedBox(height: 6),
               SelectableText('Version: $versionText'),
@@ -220,7 +215,9 @@ class _HomePageState extends State<HomePage> {
     if (feedbackInput == null || !mounted) return;
 
     final messenger = ScaffoldMessenger.of(context);
-    messenger.showSnackBar(const SnackBar(content: Text('Preparing feedback package...')));
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Preparing feedback package...')),
+    );
 
     try {
       AppLogger.info('Preparing feedback package from home menu');
@@ -256,9 +253,15 @@ class _HomePageState extends State<HomePage> {
         ),
       );
     } catch (error, stackTrace) {
-      AppLogger.error('Failed to share feedback package', error: error, stackTrace: stackTrace);
+      AppLogger.error(
+        'Failed to share feedback package',
+        error: error,
+        stackTrace: stackTrace,
+      );
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text('Feedback failed: $error')));
+      messenger.showSnackBar(
+        SnackBar(content: Text('Feedback failed: $error')),
+      );
     }
   }
 
@@ -279,7 +282,8 @@ class _HomePageState extends State<HomePage> {
     return sd.subtract(Duration(days: sd.weekday - 1));
   }
 
-  DateTime _endOfWeekExclusive(DateTime d) => _startOfWeek(d).add(const Duration(days: 7));
+  DateTime _endOfWeekExclusive(DateTime d) =>
+      _startOfWeek(d).add(const Duration(days: 7));
 
   Map<int, CardioEntry> _cardioEntriesByWorkout() {
     final map = <int, CardioEntry>{};
@@ -313,26 +317,9 @@ class _HomePageState extends State<HomePage> {
       final cat = e.category.trim();
       if (cat.isNotEmpty) categories.add(cat);
     }
-    final list = categories.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final list = categories.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     return list;
-  }
-
-  String? _categoryForExercise(String exercise) {
-    final target = exercise.trim().toLowerCase();
-    for (final e in _exerciseBox().values) {
-      if (e.name.trim().toLowerCase() == target) {
-        final cat = e.category.trim();
-        return cat.isEmpty ? null : cat;
-      }
-    }
-    return null;
-  }
-
-  double _incrementForExercise(String exercise) {
-    final category = _categoryForExercise(exercise);
-    final override = category == null ? null : _categoryIncrements[category];
-    if (override != null && override > 0) return override;
-    return _weightIncreaseKg;
   }
 
   List<ScheduledWorkout> _pendingSchedulesSorted() {
@@ -347,12 +334,17 @@ class _HomePageState extends State<HomePage> {
     int limit = 3,
   }) {
     final cutoff = now.subtract(const Duration(minutes: 1));
-    final upcoming = sorted.where((s) => s.scheduledAt.isAfter(cutoff)).toList();
+    final upcoming = sorted
+        .where((s) => s.scheduledAt.isAfter(cutoff))
+        .toList();
     if (upcoming.length <= limit) return upcoming;
     return upcoming.sublist(0, limit);
   }
 
-  ScheduledWorkout? _nextDueScheduleFrom(List<ScheduledWorkout> sorted, DateTime now) {
+  ScheduledWorkout? _nextDueScheduleFrom(
+    List<ScheduledWorkout> sorted,
+    DateTime now,
+  ) {
     for (final s in sorted) {
       final delta = s.scheduledAt.difference(now);
       if (delta.inMinutes <= 120 && delta.inMinutes >= -15) {
@@ -402,12 +394,13 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _openTuningSheet() async {
     final s = AppLocalizations.of(context);
-    final isPro = ProService.isPro(settings);
     final categoryControllers = <String, TextEditingController>{};
     TextEditingController controllerForCategory(String category) {
       return categoryControllers.putIfAbsent(category, () {
         final value = _categoryIncrements[category];
-        final text = value == null ? '' : value.toStringAsFixed(value % 1 == 0 ? 0 : 2);
+        final text = value == null
+            ? ''
+            : value.toStringAsFixed(value % 1 == 0 ? 0 : 2);
         return TextEditingController(text: text);
       });
     }
@@ -429,143 +422,189 @@ class _HomePageState extends State<HomePage> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            s.tuningSettings,
-                            style: Theme.of(sheetContext).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              s.tuningSettings,
+                              style: Theme.of(sheetContext)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w700),
+                            ),
                           ),
-                        ),
-                        Switch.adaptive(
-                          value: _autoProgressionEnabled,
-                          onChanged: (v) {
-                            _toggleAutoProgression(v).then((_) => setModalState(() {}));
-                          },
-                        ),
-                      ],
-                    ),
-                    Text(
-                      s.autoProgressionToggle,
-                      style: Theme.of(sheetContext).textTheme.bodySmall,
-                    ),
-                    const SizedBox(height: 12),
-                    Text(s.weightStepLabel, style: Theme.of(sheetContext).textTheme.bodySmall),
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 8,
-                      children: [
-                        for (final inc in const [1.0, 1.25, 2.5, 5.0])
-                          ChoiceChip(
-                            label: Text('${inc.toStringAsFixed(inc % 1 == 0 ? 0 : 2)} kg'),
-                            selected: (_plateIncrement - inc).abs() < 0.001,
-                            onSelected: (_) {
-                              _setPlateIncrement(inc).then((_) => setModalState(() {}));
+                          Switch.adaptive(
+                            value: _autoProgressionEnabled,
+                            onChanged: (v) {
+                              _toggleAutoProgression(
+                                v,
+                              ).then((_) => setModalState(() {}));
                             },
                           ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(child: Text(s.weightIncreaseLabel, style: Theme.of(sheetContext).textTheme.bodySmall)),
-                        Switch.adaptive(
-                          value: _useCustomIncrease,
-                          onChanged: (v) {
-                            if (!isPro) {
-                              ProService.showUpsell(
-                                context,
-                                settings,
-                                feature: s.proFeatureAutoProgression,
-                              );
-                              return;
-                            }
-                            _toggleCustomIncrease(v).then((_) => setModalState(() {}));
-                          },
-                        ),
-                      ],
-                    ),
-                    Text(
-                      _useCustomIncrease
-                          ? 'Pick a custom jump; otherwise we match your plate size.'
-                          : 'Auto-matches your plate size. Turn on to pick a different jump.',
-                      style: Theme.of(sheetContext).textTheme.bodySmall,
-                    ),
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 8,
-                      children: [
-                        for (final inc in const [1.0, 1.25, 2.5, 5.0])
-                          ChoiceChip(
-                            label: Text('+${inc.toStringAsFixed(inc % 1 == 0 ? 0 : 2)} kg'),
-                            selected: (_weightIncreaseKg - inc).abs() < 0.001,
-                            onSelected: (_useCustomIncrease && isPro)
-                                ? (_) {
-                                    _setWeightIncrease(inc).then((_) => setModalState(() {}));
-                                  }
-                                : null,
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Category increments (override default)',
-                      style: Theme.of(sheetContext).textTheme.bodySmall,
-                    ),
-                    if (!isPro) ...[
-                      const SizedBox(height: 4),
+                        ],
+                      ),
                       Text(
-                        '${s.proFeatureLocked} ${s.proFeatureAutoProgression}',
+                        s.autoProgressionToggle,
+                        style: Theme.of(sheetContext).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        s.weightStepLabel,
+                        style: Theme.of(sheetContext).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          for (final inc in const [1.0, 1.25, 2.5, 5.0])
+                            ChoiceChip(
+                              label: Text(
+                                '${inc.toStringAsFixed(inc % 1 == 0 ? 0 : 2)} kg',
+                              ),
+                              selected: (_plateIncrement - inc).abs() < 0.001,
+                              onSelected: (_) {
+                                _setPlateIncrement(
+                                  inc,
+                                ).then((_) => setModalState(() {}));
+                              },
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              s.weightIncreaseLabel,
+                              style: Theme.of(sheetContext).textTheme.bodySmall,
+                            ),
+                          ),
+                          Switch.adaptive(
+                            value: _useCustomIncrease,
+                            onChanged: (v) {
+                              _toggleCustomIncrease(
+                                v,
+                              ).then((_) => setModalState(() {}));
+                            },
+                          ),
+                        ],
+                      ),
+                      Text(
+                        _useCustomIncrease
+                            ? 'Pick a custom jump; otherwise we match your plate size.'
+                            : 'Auto-matches your plate size. Turn on to pick a different jump.',
+                        style: Theme.of(sheetContext).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          for (final inc in const [1.0, 1.25, 2.5, 5.0])
+                            ChoiceChip(
+                              label: Text(
+                                '+${inc.toStringAsFixed(inc % 1 == 0 ? 0 : 2)} kg',
+                              ),
+                              selected: (_weightIncreaseKg - inc).abs() < 0.001,
+                              onSelected: _useCustomIncrease
+                                  ? (_) {
+                                      _setWeightIncrease(
+                                        inc,
+                                      ).then((_) => setModalState(() {}));
+                                    }
+                                  : null,
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        s.volumeLabel,
+                        style: Theme.of(sheetContext).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          ChoiceChip(
+                            label: Text(s.volumeModeAuto),
+                            selected: _volumeMode == 'auto',
+                            onSelected: (_) {
+                              _setVolumeMode(
+                                'auto',
+                              ).then((_) => setModalState(() {}));
+                            },
+                          ),
+                          ChoiceChip(
+                            label: Text(s.volumeModeFixed),
+                            selected: _volumeMode == 'fixed',
+                            onSelected: (_) {
+                              _setVolumeMode(
+                                'fixed',
+                              ).then((_) => setModalState(() {}));
+                            },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Category increments (override default)',
+                        style: Theme.of(sheetContext).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 6),
+                      if (categories.isEmpty)
+                        Text(
+                          'No exercise categories yet.',
+                          style: Theme.of(sheetContext).textTheme.bodySmall,
+                        )
+                      else
+                        Column(
+                          children: [
+                            for (final category in categories) ...[
+                              Row(
+                                children: [
+                                  Expanded(child: Text(category)),
+                                  const SizedBox(width: 12),
+                                  SizedBox(
+                                    width: 110,
+                                    child: TextField(
+                                      controller: controllerForCategory(
+                                        category,
+                                      ),
+                                      keyboardType:
+                                          const TextInputType.numberWithOptions(
+                                            decimal: true,
+                                          ),
+                                       decoration: const InputDecoration(
+                                         isDense: true,
+                                         suffixText: 'kg',
+                                       ),
+                                       onChanged: (value) {
+                                         final parsed = _tryParseDouble(value);
+                                         if (value.trim().isEmpty) {
+                                           _setCategoryIncrement(
+                                            category,
+                                            null,
+                                          ).then((_) => setModalState(() {}));
+                                        } else if (parsed != null) {
+                                          _setCategoryIncrement(
+                                            category,
+                                            parsed,
+                                          ).then((_) => setModalState(() {}));
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                            ],
+                          ],
+                        ),
+                      const SizedBox(height: 12),
+                      Text(
+                        s.tuningHint,
                         style: Theme.of(sheetContext).textTheme.bodySmall,
                       ),
                     ],
-                    const SizedBox(height: 6),
-                    if (categories.isEmpty)
-                      Text(
-                        'No exercise categories yet.',
-                        style: Theme.of(sheetContext).textTheme.bodySmall,
-                      )
-                    else
-                      Column(
-                        children: [
-                          for (final category in categories) ...[
-                            Row(
-                              children: [
-                                Expanded(child: Text(category)),
-                                const SizedBox(width: 12),
-                                SizedBox(
-                                  width: 110,
-                                  child: TextField(
-                                    controller: controllerForCategory(category),
-                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                    decoration: const InputDecoration(
-                                      isDense: true,
-                                      suffixText: 'kg',
-                                    ),
-                                    enabled: isPro,
-                                    onChanged: (value) {
-                                      if (!isPro) return;
-                                      final parsed = _tryParseDouble(value);
-                                      if (value.trim().isEmpty) {
-                                        _setCategoryIncrement(category, null).then((_) => setModalState(() {}));
-                                      } else if (parsed != null) {
-                                        _setCategoryIncrement(category, parsed).then((_) => setModalState(() {}));
-                                      }
-                                    },
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                          ],
-                        ],
-                      ),
-                    const SizedBox(height: 12),
-                    Text(
-                      s.tuningHint,
-                      style: Theme.of(sheetContext).textTheme.bodySmall,
-                    ),
-                  ],
                   ),
                 ),
               );
@@ -581,11 +620,9 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _refreshReadiness() async {
-    final entry = await readinessService.recompute(weeklyGoal: _weeklyGoal);
+    await readinessService.recompute(weeklyGoal: _weeklyGoal);
     if (!mounted) return;
-    setState(() {
-      _readiness = entry;
-    });
+    setState(() {});
   }
 
   Future<void> _toggleAutoProgression(bool value) async {
@@ -593,41 +630,74 @@ class _HomePageState extends State<HomePage> {
     await settings.put('autoProgressionEnabled', value);
   }
 
-  double _tunedWeightForSet(String exercise, double baseWeight, double loadMult) {
-    if (!_autoProgressionEnabled) return _roundToIncrement(baseWeight);
-
-    final canIncrease = loadMult > 1.0 && _exerciseHasUniformReps(exercise);
-    if (canIncrease) {
-      return _roundToIncrement(baseWeight + _incrementForExercise(exercise));
-    }
-    if (loadMult < 1.0) {
-      return _roundToIncrement(baseWeight * loadMult);
-    }
-    return _roundToIncrement(baseWeight);
+  Future<void> _setVolumeMode(String mode) async {
+    final normalized = mode == 'fixed' ? 'fixed' : 'auto';
+    setState(() => _volumeMode = normalized);
+    await settings.put('volumeMode', normalized);
   }
 
-  bool _exerciseHasUniformReps(String exercise) {
-    final workouts = wbox.values.toList()
-      ..sort((a, b) => b.date.compareTo(a.date));
-    for (final w in workouts) {
-      final wKey = w.key;
-      if (wKey == null) continue;
-      final sets = sbox.values
-          .where((s) => s.workoutKey == wKey && s.exercise == exercise)
-          .toList();
-      if (sets.isEmpty) continue;
-      final relevant = sets.where((s) => s.isCompleted).toList();
-      final source = relevant.isNotEmpty ? relevant : sets;
-      final reps = source.map((s) => s.reps).toSet();
-      return reps.length == 1;
-    }
-    return false;
+  Future<String?> _pickExportAction({
+    required String title,
+    required String downloadLabel,
+  }) async {
+    final s = AppLocalizations.of(context);
+    return showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: Text(
+                title,
+                style: Theme.of(
+                  ctx,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.share),
+              title: const Text('Share'),
+              onTap: () => Navigator.pop(ctx, 'share'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.download),
+              title: Text(downloadLabel),
+              onTap: () => Navigator.pop(ctx, 'download'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.close),
+              title: Text(s.cancel),
+              onTap: () => Navigator.pop(ctx),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
-  double _roundToIncrement(double value) {
-    if (_plateIncrement <= 0) return double.parse(value.toStringAsFixed(1));
-    final steps = (value / _plateIncrement).round();
-    return double.parse((steps * _plateIncrement).toStringAsFixed(2));
+  Future<void> _exportBackupWithChoice() async {
+    final s = AppLocalizations.of(context);
+    final action = await _pickExportAction(
+      title: s.exportBackup,
+      downloadLabel: 'Download',
+    );
+    if (action == null) return;
+
+    if (action == 'share') {
+      await BackupService.exportAll();
+      return;
+    }
+
+    final location = await BackupService.exportAllToDevice();
+    if (!mounted) return;
+    final message = location.isEmpty
+        ? s.savedToDevice
+        : '${s.savedToDevice}: $location';
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _setPlateIncrement(double value) async {
@@ -671,40 +741,57 @@ class _HomePageState extends State<HomePage> {
         _categoryIncrements[category] = value;
       }
     });
-    await settings.put('categoryIncrements', Map<String, double>.from(_categoryIncrements));
+    await settings.put(
+      'categoryIncrements',
+      Map<String, double>.from(_categoryIncrements),
+    );
   }
 
   List<Workout> _latestWorkoutsFrom(List<Workout> workouts, {int limit = 10}) {
     if (workouts.isEmpty) return const <Workout>[];
-    final list = List<Workout>.from(workouts)..sort((a, b) => b.date.compareTo(a.date));
+    final list = List<Workout>.from(workouts)
+      ..sort((a, b) => b.date.compareTo(a.date));
     if (list.length <= limit) return list;
     return list.sublist(0, limit);
   }
 
   // ---------- Template apply ----------
-  Future<void> _applyTemplateToWorkout(int workoutKey, WorkoutTemplate tpl) async {
-    final readiness = _autoProgressionEnabled ? (_readiness ?? readinessService.latest()) : null;
-    final loadMultBase = readiness?.loadModifier ?? 1.0;
-    final volumeMult = (_autoProgressionEnabled && _volumeMode == 'auto') ? (readiness?.volumeModifier ?? 1.0) : 1.0;
+  Future<void> _applyTemplateToWorkout(
+    int workoutKey,
+    WorkoutTemplate tpl,
+  ) async {
+    final setCountByExercise = <String, int>{};
+    for (final set in tpl.sets) {
+      if (set.isTimeBased) continue;
+      final key = set.exercise.trim().toLowerCase();
+      if (key.isEmpty) continue;
+      setCountByExercise[key] = (setCountByExercise[key] ?? 0) + 1;
+    }
 
     for (var i = 0; i < tpl.sets.length; i++) {
       final ts = tpl.sets[i];
-      final adjustedReps = (ts.reps * volumeMult).round();
-      final adjustedSeconds = ts.seconds != null ? (ts.seconds! * volumeMult).round() : null;
-      final adjustedWeight = _tunedWeightForSet(ts.exercise, ts.weightKg, loadMultBase);
+      final exerciseKey = ts.exercise.trim().toLowerCase();
+      final requiredSetCount = setCountByExercise[exerciseKey] ?? 1;
+      final tuned = ProgramService.tuneStrengthSet(
+        baseSet: ts,
+        requiredSetCount: requiredSetCount,
+      );
 
-      await sbox.add(SetEntry(
-        workoutKey: workoutKey,
-        exercise: ts.exercise,
-        setNumber: i + 1,
-        reps: adjustedReps <= 0 ? 1 : adjustedReps,
-        weightKg: adjustedWeight,
-        rpe: ts.rpe,
-        notes: ts.notes,
-        isTimeBased: ts.isTimeBased,
-        seconds: adjustedSeconds == null || adjustedSeconds <= 0 ? ts.seconds : adjustedSeconds,
-        isCompleted: false,
-      ));
+      await sbox.add(
+        SetEntry(
+          workoutKey: workoutKey,
+          exercise: ts.exercise,
+          setNumber: i + 1,
+          reps: ts.isTimeBased ? 0 : (tuned.reps <= 0 ? 1 : tuned.reps),
+          weightKg: tuned.weightKg,
+          rpe: ts.rpe,
+          notes: ts.notes,
+          isTimeBased: ts.isTimeBased,
+          seconds: ts.isTimeBased ? tuned.seconds : ts.seconds,
+          isCompleted: false,
+          isSuperset: ts.isSuperset,
+        ),
+      );
     }
     final sets = sbox.values.where((e) => e.workoutKey == workoutKey).toList();
     final w = wbox.get(workoutKey)!;
@@ -731,7 +818,9 @@ class _HomePageState extends State<HomePage> {
               children: [
                 Text(
                   s.newWorkoutPickTemplate,
-                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Flexible(
@@ -739,14 +828,18 @@ class _HomePageState extends State<HomePage> {
                     shrinkWrap: true,
                     // uvijek imamo +1 za "Prazan trening"
                     itemCount: (templates.isEmpty ? 1 : templates.length + 1),
-                    separatorBuilder: (context, index) => const Divider(height: 0),
+                    separatorBuilder: (context, index) =>
+                        const Divider(height: 0),
                     itemBuilder: (_, i) {
                       if (i == 0) {
                         return ListTile(
                           leading: const Icon(Icons.note_add_outlined),
                           title: Text(s.emptyWorkout),
                           subtitle: Text(s.startWithoutTemplate),
-                          onTap: () => Navigator.pop(ctx, const _TemplatePickResult.empty()),
+                          onTap: () => Navigator.pop(
+                            ctx,
+                            const _TemplatePickResult.empty(),
+                          ),
                         );
                       }
                       final t = templates[i - 1];
@@ -760,7 +853,10 @@ class _HomePageState extends State<HomePage> {
                           maxLines: 2,
                         ),
                         trailing: const Icon(Icons.chevron_right),
-                        onTap: () => Navigator.pop(ctx, _TemplatePickResult.withTemplate(t)),
+                        onTap: () => Navigator.pop(
+                          ctx,
+                          _TemplatePickResult.withTemplate(t),
+                        ),
                       );
                     },
                   ),
@@ -811,33 +907,43 @@ class _HomePageState extends State<HomePage> {
               children: [
                 Text(
                   s.cardioTemplatePickTitle,
-                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Flexible(
                   child: ListView.separated(
                     shrinkWrap: true,
                     itemCount: (templates.isEmpty ? 1 : templates.length + 1),
-                    separatorBuilder: (context, index) => const Divider(height: 0),
+                    separatorBuilder: (context, index) =>
+                        const Divider(height: 0),
                     itemBuilder: (_, i) {
                       if (i == 0) {
                         return ListTile(
                           leading: const Icon(Icons.note_add_outlined),
                           title: Text(s.emptyWorkout),
                           subtitle: Text(s.startWithoutTemplate),
-                          onTap: () => Navigator.pop(ctx, const _CardioTemplatePickResult.empty()),
+                          onTap: () => Navigator.pop(
+                            ctx,
+                            const _CardioTemplatePickResult.empty(),
+                          ),
                         );
                       }
                       final t = templates[i - 1];
                       final duration = _formatDurationShort(t.durationSeconds);
-                      final distance =
-                          t.distanceKm != null ? '${t.distanceKm!.toStringAsFixed(2)} km' : s.noDistance;
+                      final distance = t.distanceKm != null
+                          ? '${t.distanceKm!.toStringAsFixed(2)} km'
+                          : s.noDistance;
                       return ListTile(
                         leading: const Icon(Icons.bookmark_outline),
                         title: Text(t.name),
                         subtitle: Text('${t.activity} - $duration - $distance'),
                         trailing: const Icon(Icons.chevron_right),
-                        onTap: () => Navigator.pop(ctx, _CardioTemplatePickResult.withTemplate(t)),
+                        onTap: () => Navigator.pop(
+                          ctx,
+                          _CardioTemplatePickResult.withTemplate(t),
+                        ),
                       );
                     },
                   ),
@@ -908,20 +1014,25 @@ class _HomePageState extends State<HomePage> {
       notes: entry.notes,
     );
   }
-  Future<void> _applyCardioTemplateToWorkout(int workoutKey, CardioTemplate tpl) async {
+
+  Future<void> _applyCardioTemplateToWorkout(
+    int workoutKey,
+    CardioTemplate tpl,
+  ) async {
+    final tunedTemplate = ProgramService.tuneCardioTemplate(baseTemplate: tpl);
     final entry = CardioEntry(
       workoutKey: workoutKey,
-      activity: tpl.activity,
-      durationSeconds: tpl.durationSeconds,
-      distanceKm: tpl.distanceKm,
-      elevationGainM: tpl.elevationGainM,
-      inclinePercent: tpl.inclinePercent,
-      avgHeartRate: tpl.avgHeartRate,
-      maxHeartRate: tpl.maxHeartRate,
-      rpe: tpl.rpe,
-      calories: tpl.calories,
-      zoneSeconds: List<int>.from(tpl.zoneSeconds),
-      segments: tpl.segments
+      activity: tunedTemplate.activity,
+      durationSeconds: tunedTemplate.durationSeconds,
+      distanceKm: tunedTemplate.distanceKm,
+      elevationGainM: tunedTemplate.elevationGainM,
+      inclinePercent: tunedTemplate.inclinePercent,
+      avgHeartRate: tunedTemplate.avgHeartRate,
+      maxHeartRate: tunedTemplate.maxHeartRate,
+      rpe: tunedTemplate.rpe,
+      calories: tunedTemplate.calories,
+      zoneSeconds: List<int>.from(tunedTemplate.zoneSeconds),
+      segments: tunedTemplate.segments
           .map(
             (s) => CardioSegment(
               label: s.label,
@@ -935,13 +1046,13 @@ class _HomePageState extends State<HomePage> {
             ),
           )
           .toList(),
-      environment: tpl.environment,
-      terrain: tpl.terrain,
-      weather: tpl.weather,
-      equipment: tpl.equipment,
-      mood: tpl.mood,
-      energy: tpl.energy,
-      notes: tpl.notes,
+      environment: tunedTemplate.environment,
+      terrain: tunedTemplate.terrain,
+      weather: tunedTemplate.weather,
+      equipment: tunedTemplate.equipment,
+      mood: tunedTemplate.mood,
+      energy: tunedTemplate.energy,
+      notes: tunedTemplate.notes,
     );
 
     await cbox.add(entry);
@@ -966,7 +1077,9 @@ class _HomePageState extends State<HomePage> {
             children: [
               Text(
                 s.workoutTypeTitle,
-                style: Theme.of(ctx).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                style: Theme.of(
+                  ctx,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 12),
               ListTile(
@@ -981,10 +1094,7 @@ class _HomePageState extends State<HomePage> {
                 onTap: () => Navigator.pop(ctx, 'cardio'),
               ),
               const SizedBox(height: 12),
-              Text(
-                s.workoutTypeHint,
-                style: Theme.of(ctx).textTheme.bodySmall,
-              ),
+              Text(s.workoutTypeHint, style: Theme.of(ctx).textTheme.bodySmall),
             ],
           ),
         ),
@@ -1019,7 +1129,10 @@ class _HomePageState extends State<HomePage> {
     }
 
     if (!mounted) return;
-    await Navigator.push(context, MaterialPageRoute(builder: (_) => WorkoutDetailPage(workoutKey: key)));
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => WorkoutDetailPage(workoutKey: key)),
+    );
     if (!mounted) return;
     setState(() {});
     _refreshReadiness();
@@ -1029,19 +1142,16 @@ class _HomePageState extends State<HomePage> {
   Future<void> _createTemplateFromWorkout(Workout w) async {
     final s = AppLocalizations.of(context);
     final wKey = w.key as int;
-    final sets = sbox.values
-        .where((s) => s.workoutKey == wKey)
-        .toList()
+    final sets = sbox.values.where((s) => s.workoutKey == wKey).toList()
       ..sort((a, b) => a.setNumber.compareTo(b.setNumber));
 
     if (sets.isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(s.workoutHasNoSetsForTemplate)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(s.workoutHasNoSetsForTemplate)));
       return;
     }
-    if (!await ProService.ensureTemplateCapacity(context, settings, tbox.length)) return;
     if (!mounted) return;
 
     final d = w.date;
@@ -1052,21 +1162,34 @@ class _HomePageState extends State<HomePage> {
     final nameCtrl = TextEditingController(text: defaultName);
     final notesCtrl = TextEditingController(text: w.notes);
 
-    final ok = await showDialog<bool>(
+    final ok =
+        await showDialog<bool>(
           context: context,
           builder: (c) => AlertDialog(
             title: Text(s.saveAsTemplate),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                TextField(controller: nameCtrl, decoration: InputDecoration(labelText: s.templateName)),
+                TextField(
+                  controller: nameCtrl,
+                  decoration: InputDecoration(labelText: s.templateName),
+                ),
                 const SizedBox(height: 8),
-                TextField(controller: notesCtrl, decoration: InputDecoration(labelText: s.notesOptional)),
+                TextField(
+                  controller: notesCtrl,
+                  decoration: InputDecoration(labelText: s.notesOptional),
+                ),
               ],
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(c, false), child: Text(s.cancel)),
-              FilledButton(onPressed: () => Navigator.pop(c, true), child: Text(s.save)),
+              TextButton(
+                onPressed: () => Navigator.pop(c, false),
+                child: Text(s.cancel),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(c, true),
+                child: Text(s.save),
+              ),
             ],
           ),
         ) ??
@@ -1087,6 +1210,7 @@ class _HomePageState extends State<HomePage> {
             notes: s.notes,
             isTimeBased: s.isTimeBased,
             seconds: s.seconds,
+            isSuperset: s.isSuperset,
           ),
       ],
     );
@@ -1094,9 +1218,9 @@ class _HomePageState extends State<HomePage> {
     final int key = await tbox.add(tpl);
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(s.templateCreated)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(s.templateCreated)));
 
     Navigator.push(
       context,
@@ -1118,14 +1242,21 @@ class _HomePageState extends State<HomePage> {
       titleTrim,
     );
 
-    final ok = await showDialog<bool>(
+    final ok =
+        await showDialog<bool>(
           context: context,
           builder: (c) => AlertDialog(
             title: Text(s.deleteWorkoutTitle),
             content: Text(bodyText),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(c, false), child: Text(s.cancel)),
-              FilledButton.tonal(onPressed: () => Navigator.pop(c, true), child: Text(s.delete)),
+              TextButton(
+                onPressed: () => Navigator.pop(c, false),
+                child: Text(s.cancel),
+              ),
+              FilledButton.tonal(
+                onPressed: () => Navigator.pop(c, true),
+                child: Text(s.delete),
+              ),
             ],
           ),
         ) ??
@@ -1139,27 +1270,31 @@ class _HomePageState extends State<HomePage> {
     final s = AppLocalizations.of(context);
     final wKey = w.key as int;
 
-    final backupWorkout = Workout(date: w.date, title: w.title, notes: w.notes, kind: w.kind)
-      ..totalSets = w.totalSets
-      ..totalReps = w.totalReps
-      ..totalVolume = w.totalVolume
-      ..restAdherence = w.restAdherence
-      ..feelingScore = w.feelingScore;
+    final backupWorkout =
+        Workout(date: w.date, title: w.title, notes: w.notes, kind: w.kind)
+          ..totalSets = w.totalSets
+          ..totalReps = w.totalReps
+          ..totalVolume = w.totalVolume
+          ..restAdherence = w.restAdherence
+          ..feelingScore = w.feelingScore;
 
     final backupSets = sbox.values
         .where((s) => s.workoutKey == wKey)
-        .map((s) => SetEntry(
-              workoutKey: -1,
-              exercise: s.exercise,
-              setNumber: s.setNumber,
-              reps: s.reps,
-              weightKg: s.weightKg,
-              rpe: s.rpe,
-              notes: s.notes,
-              isTimeBased: s.isTimeBased,
-              seconds: s.seconds,
-              isCompleted: s.isCompleted,
-            ))
+        .map(
+          (s) => SetEntry(
+            workoutKey: -1,
+            exercise: s.exercise,
+            setNumber: s.setNumber,
+            reps: s.reps,
+            weightKg: s.weightKg,
+            rpe: s.rpe,
+            notes: s.notes,
+            isTimeBased: s.isTimeBased,
+            seconds: s.seconds,
+            isCompleted: s.isCompleted,
+            isSuperset: s.isSuperset,
+          ),
+        )
         .toList();
 
     final backupCardio = cbox.values
@@ -1184,11 +1319,11 @@ class _HomePageState extends State<HomePage> {
           onPressed: () async {
             final newWKey = await wbox.add(
               Workout(
-                date: backupWorkout.date,
-                title: backupWorkout.title,
-                notes: backupWorkout.notes,
-                kind: backupWorkout.kind,
-              )
+                  date: backupWorkout.date,
+                  title: backupWorkout.title,
+                  notes: backupWorkout.notes,
+                  kind: backupWorkout.kind,
+                )
                 ..totalSets = backupWorkout.totalSets
                 ..totalReps = backupWorkout.totalReps
                 ..totalVolume = backupWorkout.totalVolume
@@ -1196,18 +1331,21 @@ class _HomePageState extends State<HomePage> {
                 ..feelingScore = backupWorkout.feelingScore,
             );
             for (final s in backupSets) {
-              await sbox.add(SetEntry(
-                workoutKey: newWKey,
-                exercise: s.exercise,
-                setNumber: s.setNumber,
-                reps: s.reps,
-                weightKg: s.weightKg,
-                rpe: s.rpe,
-                notes: s.notes,
-                isTimeBased: s.isTimeBased,
-                seconds: s.seconds,
-                isCompleted: s.isCompleted,
-              ));
+              await sbox.add(
+                SetEntry(
+                  workoutKey: newWKey,
+                  exercise: s.exercise,
+                  setNumber: s.setNumber,
+                  reps: s.reps,
+                  weightKg: s.weightKg,
+                  rpe: s.rpe,
+                  notes: s.notes,
+                  isTimeBased: s.isTimeBased,
+                  seconds: s.seconds,
+                  isCompleted: s.isCompleted,
+                  isSuperset: s.isSuperset,
+                ),
+              );
             }
             for (final c in backupCardio) {
               await cbox.add(_cloneCardioEntry(c, workoutKey: newWKey));
@@ -1236,11 +1374,12 @@ class _HomePageState extends State<HomePage> {
         final latest = _latestWorkoutsFrom(workouts);
         final cardioByWorkout = _cardioEntriesByWorkout();
         final done = _workoutsThisWeek(workouts, now);
-        final isPro = ProService.isPro(settings);
         final goal = _weeklyGoal.clamp(1, 14);
         final progress = (goal == 0) ? 0.0 : (done / goal).clamp(0.0, 1.0);
         final weekStart = _startOfWeek(now);
-        final weekEnd = _endOfWeekExclusive(now).subtract(const Duration(days: 1));
+        final weekEnd = _endOfWeekExclusive(
+          now,
+        ).subtract(const Duration(days: 1));
         final rangeLabel =
             '${weekStart.day.toString().padLeft(2, '0')}.${weekStart.month.toString().padLeft(2, '0')} - '
             '${weekEnd.day.toString().padLeft(2, '0')}.${weekEnd.month.toString().padLeft(2, '0')}';
@@ -1254,11 +1393,7 @@ class _HomePageState extends State<HomePage> {
               builder: (context, constraints) => FittedBox(
                 alignment: Alignment.centerLeft,
                 fit: BoxFit.scaleDown,
-                child: Text(
-                  s.appTitle,
-                  maxLines: 1,
-                  softWrap: false,
-                ),
+                child: Text(s.appTitle, maxLines: 1, softWrap: false),
               ),
             ),
             actions: [
@@ -1266,45 +1401,64 @@ class _HomePageState extends State<HomePage> {
                 tooltip: s.scheduleTitle,
                 icon: const Icon(Icons.calendar_month),
                 onPressed: () {
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => const SchedulePage()));
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const SchedulePage()),
+                  );
                 },
               ),
               IconButton(
                 tooltip: s.templates,
                 icon: const Icon(Icons.content_paste_search),
                 onPressed: () {
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => const TemplatesPage()));
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const TemplatesPage()),
+                  );
                 },
               ),
               IconButton(
                 tooltip: s.allWorkouts,
                 icon: const Icon(Icons.view_list),
                 onPressed: () {
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => const WorkoutsListPage()));
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const WorkoutsListPage()),
+                  );
                 },
               ),
               IconButton(
                 tooltip: s.exercises,
                 icon: const Icon(Icons.fitness_center),
                 onPressed: () {
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => const ExercisesPage()));
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const ExercisesPage()),
+                  );
                 },
               ),
               PopupMenuButton<String>(
                 onSelected: (v) async {
                   if (v == 'export') {
                     AppLogger.info('User triggered backup export');
-                    await BackupService.exportAll();
+                    await _exportBackupWithChoice();
                   } else if (v == 'import') {
                     AppLogger.info('User opened backup import confirmation');
-                    final confirmed = await showDialog<bool>(
+                    final confirmed =
+                        await showDialog<bool>(
                           context: context,
                           builder: (c) => AlertDialog(
                             title: Text(s.importDataTitle),
                             content: Text(s.importDataBody),
                             actions: [
-                              TextButton(onPressed: () => Navigator.pop(c, false), child: Text(s.no)),
-                              FilledButton(onPressed: () => Navigator.pop(c, true), child: Text(s.yesImport)),
+                              TextButton(
+                                onPressed: () => Navigator.pop(c, false),
+                                child: Text(s.no),
+                              ),
+                              FilledButton(
+                                onPressed: () => Navigator.pop(c, true),
+                                child: Text(s.yesImport),
+                              ),
                             ],
                           ),
                         ) ??
@@ -1314,7 +1468,9 @@ class _HomePageState extends State<HomePage> {
                       AppLogger.info('User confirmed backup import');
                       await BackupService.importAll(replace: true);
                       if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s.importCompleted)));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(s.importCompleted)),
+                      );
                       setState(() {});
                     }
                   } else if (v == 'import_pdf') {
@@ -1322,7 +1478,9 @@ class _HomePageState extends State<HomePage> {
                     if (!context.mounted) return;
                     final changed = await Navigator.push<bool>(
                       context,
-                      MaterialPageRoute(builder: (_) => const ImportPdfScreen()),
+                      MaterialPageRoute(
+                        builder: (_) => const ImportPdfScreen(),
+                      ),
                     );
                     if (changed == true && mounted) {
                       setState(() {});
@@ -1332,9 +1490,6 @@ class _HomePageState extends State<HomePage> {
                     await _showAboutDialog();
                   } else if (v == 'feedback') {
                     await _sendFeedbackPackage();
-                  } else if (v == 'pro') {
-                    AppLogger.info('User opened Pro upsell');
-                    await ProService.showUpsell(context, settings);
                   } else if (v == 'programs') {
                     if (!context.mounted) return;
                     await Navigator.push(
@@ -1347,11 +1502,17 @@ class _HomePageState extends State<HomePage> {
                 itemBuilder: (context) => [
                   PopupMenuItem(
                     value: 'export',
-                    child: ListTile(leading: const Icon(Icons.file_upload_outlined), title: Text(s.exportBackup)),
+                    child: ListTile(
+                      leading: const Icon(Icons.file_upload_outlined),
+                      title: Text(s.exportBackup),
+                    ),
                   ),
                   PopupMenuItem(
                     value: 'import',
-                    child: ListTile(leading: const Icon(Icons.file_download_outlined), title: Text(s.importBackup)),
+                    child: ListTile(
+                      leading: const Icon(Icons.file_download_outlined),
+                      title: Text(s.importBackup),
+                    ),
                   ),
                   PopupMenuItem(
                     value: 'import_pdf',
@@ -1370,22 +1531,20 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ),
                   PopupMenuItem(
-                    value: 'pro',
-                    child: ListTile(
-                      leading: Icon(isPro ? Icons.verified : Icons.workspace_premium),
-                      title: Text(isPro ? s.proMenuActive : s.proMenuUpgrade),
-                    ),
-                  ),
-                  PopupMenuItem(
                     value: 'about',
-                    child: ListTile(leading: const Icon(Icons.info_outline), title: Text(s.aboutMenu)),
+                    child: ListTile(
+                      leading: const Icon(Icons.info_outline),
+                      title: Text(s.aboutMenu),
+                    ),
                   ),
                   PopupMenuItem(
                     value: 'feedback',
                     child: ListTile(
                       leading: const Icon(Icons.feedback_outlined),
                       title: Text(s.sessionFeedbackTitle),
-                      subtitle: const Text('Include screenshot + logs + app version'),
+                      subtitle: const Text(
+                        'Include screenshot + logs + app version',
+                      ),
                     ),
                   ),
                 ],
@@ -1415,7 +1574,10 @@ class _HomePageState extends State<HomePage> {
                   titleFor: _scheduledTitle,
                   timeFor: (s) => _formatScheduleDateTime(s.scheduledAt),
                   onOpenCalendar: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => const SchedulePage()));
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const SchedulePage()),
+                    );
                   },
                 ),
                 const SizedBox(height: 16),
@@ -1426,7 +1588,8 @@ class _HomePageState extends State<HomePage> {
                   rangeLabel: rangeLabel,
                   onChangeGoal: () async {
                     final ctrl = TextEditingController(text: '$_weeklyGoal');
-                    final ok = await showDialog<bool>(
+                    final ok =
+                        await showDialog<bool>(
                           context: context,
                           builder: (c) => AlertDialog(
                             title: Text(s.setWeeklyGoal),
@@ -1439,8 +1602,14 @@ class _HomePageState extends State<HomePage> {
                               ),
                             ),
                             actions: [
-                              TextButton(onPressed: () => Navigator.pop(c, false), child: Text(s.cancel)),
-                              FilledButton(onPressed: () => Navigator.pop(c, true), child: Text(s.save)),
+                              TextButton(
+                                onPressed: () => Navigator.pop(c, false),
+                                child: Text(s.cancel),
+                              ),
+                              FilledButton(
+                                onPressed: () => Navigator.pop(c, true),
+                                child: Text(s.save),
+                              ),
                             ],
                           ),
                         ) ??
@@ -1465,7 +1634,9 @@ class _HomePageState extends State<HomePage> {
 
                 Text(
                   s.recentWorkouts,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 if (latest.isEmpty)
@@ -1484,9 +1655,12 @@ class _HomePageState extends State<HomePage> {
                     final d = w.date;
                     final dateStr =
                         '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year}.';
-                    final cardioEntry = w.kind == 'cardio' ? cardioByWorkout[key] : null;
-                    final cardioDuration =
-                        cardioEntry != null ? _formatDurationShort(cardioEntry.durationSeconds) : s.noDuration;
+                    final cardioEntry = w.kind == 'cardio'
+                        ? cardioByWorkout[key]
+                        : null;
+                    final cardioDuration = cardioEntry != null
+                        ? _formatDurationShort(cardioEntry.durationSeconds)
+                        : s.noDuration;
                     final cardioDistance = cardioEntry?.distanceKm != null
                         ? '${cardioEntry!.distanceKm!.toStringAsFixed(2)} km'
                         : s.noDistance;
@@ -1501,10 +1675,16 @@ class _HomePageState extends State<HomePage> {
                       ),
                       child: ListTile(
                         leading: Icon(
-                          completed ? Icons.check_circle : Icons.radio_button_unchecked,
+                          completed
+                              ? Icons.check_circle
+                              : Icons.radio_button_unchecked,
                           color: completed ? Colors.green : null,
                         ),
-                        title: Text(w.title.isNotEmpty ? w.title : '${s.workout} $dateStr'),
+                        title: Text(
+                          w.title.isNotEmpty
+                              ? w.title
+                              : '${s.workout} $dateStr',
+                        ),
                         subtitle: Text(subtitle, maxLines: 2),
                         isThreeLine: true,
                         trailing: PopupMenuButton<String>(
@@ -1513,7 +1693,10 @@ class _HomePageState extends State<HomePage> {
                               if (!mounted) return;
                               Navigator.push(
                                 context,
-                                MaterialPageRoute(builder: (_) => WorkoutDetailPage(workoutKey: key)),
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      WorkoutDetailPage(workoutKey: key),
+                                ),
                               );
                             } else if (v == 'delete') {
                               await _confirmDeleteWorkout(w);
@@ -1524,22 +1707,34 @@ class _HomePageState extends State<HomePage> {
                           itemBuilder: (context) => [
                             PopupMenuItem(
                               value: 'open',
-                              child: ListTile(leading: const Icon(Icons.open_in_new), title: Text(s.open)),
+                              child: ListTile(
+                                leading: const Icon(Icons.open_in_new),
+                                title: Text(s.open),
+                              ),
                             ),
                             PopupMenuItem(
                               value: 'tpl',
-                              child: ListTile(leading: const Icon(Icons.copy_all), title: Text(s.createTemplate)),
+                              child: ListTile(
+                                leading: const Icon(Icons.copy_all),
+                                title: Text(s.createTemplate),
+                              ),
                             ),
                             PopupMenuItem(
                               value: 'delete',
-                              child: ListTile(leading: const Icon(Icons.delete_outline), title: Text(s.delete)),
+                              child: ListTile(
+                                leading: const Icon(Icons.delete_outline),
+                                title: Text(s.delete),
+                              ),
                             ),
                           ],
                         ),
                         onTap: () {
                           Navigator.push(
                             context,
-                            MaterialPageRoute(builder: (_) => WorkoutDetailPage(workoutKey: key)),
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  WorkoutDetailPage(workoutKey: key),
+                            ),
                           );
                         },
                       ),
@@ -1561,13 +1756,9 @@ extension _HomeL10nFallback on AppLocalizations {
   String get upcomingReminderTitle => 'Upcoming workout';
   String get permissionsPromptTitle => 'Permissions';
   String get permissionsPromptBody =>
-      'Allow notifications, exact alarms, and overlay banners so reminders and interval alerts work in the background.';
+      'Allow notifications so workout reminders can appear on time.';
   String get permissionsAllow => 'Allow';
   String get permissionsNotNow => 'Not now';
-  String get overlayPromptTitle => 'Overlay banner';
-  String get overlayPromptBody =>
-      'Enable draw over other apps to show 5-second interval banners while other apps are open.';
-  String get overlayOpenSettings => 'Open settings';
 }
 
 class _FeedbackInputSheet extends StatefulWidget {
@@ -1631,14 +1822,18 @@ class _FeedbackInputSheetState extends State<_FeedbackInputSheet> {
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
         child: Form(
           key: _formKey,
-          autovalidateMode: _showValidationErrors ? AutovalidateMode.onUserInteraction : AutovalidateMode.disabled,
+          autovalidateMode: _showValidationErrors
+              ? AutovalidateMode.onUserInteraction
+              : AutovalidateMode.disabled,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 'Session feedback',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -1732,8 +1927,10 @@ class _CardioTemplatePickResult {
   final bool startEmpty;
 
   const _CardioTemplatePickResult._({this.template, required this.startEmpty});
-  const _CardioTemplatePickResult.empty() : this._(template: null, startEmpty: true);
-  const _CardioTemplatePickResult.withTemplate(this.template) : startEmpty = false;
+  const _CardioTemplatePickResult.empty()
+    : this._(template: null, startEmpty: true);
+  const _CardioTemplatePickResult.withTemplate(this.template)
+    : startEmpty = false;
 }
 
 class _TuningCard extends StatelessWidget {
@@ -1752,9 +1949,13 @@ class _TuningCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = AppLocalizations.of(context);
-    final plateText = '${plateIncrement.toStringAsFixed(plateIncrement % 1 == 0 ? 0 : 2)} kg';
-    final increaseText = '+${weightIncreaseKg.toStringAsFixed(weightIncreaseKg % 1 == 0 ? 0 : 2)} kg';
-    final increaseLabel = useCustomIncrease ? increaseText : '$increaseText (matches plates)';
+    final plateText =
+        '${plateIncrement.toStringAsFixed(plateIncrement % 1 == 0 ? 0 : 2)} kg';
+    final increaseText =
+        '+${weightIncreaseKg.toStringAsFixed(weightIncreaseKg % 1 == 0 ? 0 : 2)} kg';
+    final increaseLabel = useCustomIncrease
+        ? increaseText
+        : '$increaseText (matches plates)';
 
     return Card(
       elevation: 0,
@@ -1772,7 +1973,9 @@ class _TuningCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     s.tuningSettings,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
                 IconButton(
@@ -1783,9 +1986,15 @@ class _TuningCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 6),
-            Text('${s.weightStepLabel}: $plateText', style: Theme.of(context).textTheme.bodySmall),
+            Text(
+              '${s.weightStepLabel}: $plateText',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
             const SizedBox(height: 4),
-            Text('${s.weightIncreaseLabel}: $increaseLabel', style: Theme.of(context).textTheme.bodySmall),
+            Text(
+              '${s.weightIncreaseLabel}: $increaseLabel',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
             const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
@@ -1840,7 +2049,9 @@ class _ScheduleCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     s.scheduledWorkoutsTitle,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
                 TextButton(
@@ -1852,11 +2063,20 @@ class _ScheduleCard extends StatelessWidget {
             if (nextDue != null) ...[
               const SizedBox(height: 8),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.primary.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)),
+                  border: Border.all(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.primary.withValues(alpha: 0.3),
+                  ),
                 ),
                 child: Row(
                   children: [
@@ -1872,7 +2092,8 @@ class _ScheduleCard extends StatelessWidget {
                           ),
                           Text(
                             '${titleFor(nextDue!)} • ${timeFor(nextDue!)}',
-                            style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+                            style: Theme.of(context).textTheme.titleSmall
+                                ?.copyWith(fontWeight: FontWeight.w600),
                           ),
                         ],
                       ),
@@ -1895,7 +2116,9 @@ class _ScheduleCard extends StatelessWidget {
                     leading: Icon(_kindIcon(item.kind)),
                     title: Text(titleFor(item)),
                     subtitle: Text(timeFor(item)),
-                    trailing: item.reminderEnabled ? const Icon(Icons.notifications_active) : null,
+                    trailing: item.reminderEnabled
+                        ? const Icon(Icons.notifications_active)
+                        : null,
                     onTap: onOpenCalendar,
                   );
                 }).toList(),
@@ -1940,7 +2163,9 @@ class _WeeklyGoalCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   s.weeklyGoal,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
               IconButton(
@@ -1962,7 +2187,9 @@ class _WeeklyGoalCard extends StatelessWidget {
             children: [
               Text(
                 '$done / $goal ${s.workoutsPerWeek.toLowerCase()}',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
               ),
               const Spacer(),
               if (reached)
@@ -1980,10 +2207,3 @@ class _WeeklyGoalCard extends StatelessWidget {
     );
   }
 }
-
-
-
-
-
-
-

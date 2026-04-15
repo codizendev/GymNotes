@@ -106,6 +106,7 @@ class PdfImportService {
           notes: s.notes,
           isTimeBased: s.isTimeBased,
           seconds: s.seconds,
+          isSuperset: s.isSuperset,
         ),
       );
     }

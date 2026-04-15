@@ -60,7 +60,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get tuningHint =>
-      'Weights increase by your chosen step only when prior sets matched reps.';
+      'Weight increases only when the last comparable session hit the target reps.';
 
   @override
   String get volumeLabel => 'Volume';

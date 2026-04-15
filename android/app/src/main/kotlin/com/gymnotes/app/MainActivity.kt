@@ -41,55 +41,33 @@ class MainActivity: FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
-            if (call.method == "savePdf") {
-                val filename = call.argument<String>("filename") ?: "workout.pdf"
-                val base64 = call.argument<String>("bytesBase64") ?: ""
-
-                try {
+            when (call.method) {
+                "savePdf" -> {
+                    val filename = call.argument<String>("filename") ?: "workout.pdf"
+                    val base64 = call.argument<String>("bytesBase64") ?: ""
                     val bytes = Base64.decode(base64, Base64.DEFAULT)
-
-                    // Android 10+ (Q) â€“ MediaStore (bez runtime permissions)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        val resolver = applicationContext.contentResolver
-                        val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-                        val values = ContentValues().apply {
-                            put(MediaStore.Downloads.DISPLAY_NAME, filename)
-                            put(MediaStore.Downloads.MIME_TYPE, "application/pdf")
-                            // (opcionalno) RELATIVE_PATH: "Download/" â€“ za neke OEM-ove
-                            put(MediaStore.Downloads.RELATIVE_PATH, "Download/")
-                            put(MediaStore.Downloads.IS_PENDING, 1)
-                        }
-                        val uri = resolver.insert(collection, values)
-                        if (uri == null) {
-                            result.success(false)
-                            return@setMethodCallHandler
-                        }
-                        resolver.openOutputStream(uri, "w")!!.use { os ->
-                            os.write(bytes)
-                            os.flush()
-                        }
-                        values.clear()
-                        values.put(MediaStore.Downloads.IS_PENDING, 0)
-                        resolver.update(uri, values, null, null)
-
-                        result.success(true)
-                    } else {
-                        // Android 9 i starije â€“ javni Downloads uz WRITE_EXTERNAL_STORAGE
-                        val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                        if (!downloads.exists()) downloads.mkdirs()
-                        val outFile = File(downloads, filename)
-                        FileOutputStream(outFile).use { it.write(bytes) }
-                        result.success(true)
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    result.success(false)
+                    saveBytesToDownloads(
+                        filename = filename,
+                        bytes = bytes,
+                        mimeType = "application/pdf",
+                        result = result,
+                    )
                 }
-            } else {
-                result.notImplemented()
+                "saveFile" -> {
+                    val filename = call.argument<String>("filename") ?: "export.bin"
+                    val mimeType = call.argument<String>("mimeType") ?: "application/octet-stream"
+                    val base64 = call.argument<String>("bytesBase64") ?: ""
+                    val bytes = Base64.decode(base64, Base64.DEFAULT)
+                    saveBytesToDownloads(
+                        filename = filename,
+                        bytes = bytes,
+                        mimeType = mimeType,
+                        result = result,
+                    )
+                }
+                else -> result.notImplemented()
             }
         }
-
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, OVERLAY_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "show" -> {
@@ -105,6 +83,50 @@ class MainActivity: FlutterActivity() {
                 }
                 else -> result.notImplemented()
             }
+        }
+    }
+
+    private fun saveBytesToDownloads(
+        filename: String,
+        bytes: ByteArray,
+        mimeType: String,
+        result: MethodChannel.Result,
+    ) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val resolver = applicationContext.contentResolver
+                val collection =
+                    MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                val values = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, filename)
+                    put(MediaStore.Downloads.MIME_TYPE, mimeType)
+                    put(MediaStore.Downloads.RELATIVE_PATH, "Download/")
+                    put(MediaStore.Downloads.IS_PENDING, 1)
+                }
+                val uri = resolver.insert(collection, values)
+                if (uri == null) {
+                    result.success(false)
+                    return
+                }
+                resolver.openOutputStream(uri, "w")!!.use { os ->
+                    os.write(bytes)
+                    os.flush()
+                }
+                values.clear()
+                values.put(MediaStore.Downloads.IS_PENDING, 0)
+                resolver.update(uri, values, null, null)
+                result.success(true)
+            } else {
+                val downloads =
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                if (!downloads.exists()) downloads.mkdirs()
+                val outFile = File(downloads, filename)
+                FileOutputStream(outFile).use { it.write(bytes) }
+                result.success(true)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            result.success(false)
         }
     }
 

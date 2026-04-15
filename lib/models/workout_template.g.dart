@@ -65,13 +65,14 @@ class TemplateSetAdapter extends TypeAdapter<TemplateSet> {
       notes: fields[5] as String,
       isTimeBased: fields[6] == null ? false : fields[6] as bool,
       seconds: fields[7] as int?,
+      isSuperset: fields[8] == null ? false : fields[8] as bool,
     );
   }
 
   @override
   void write(BinaryWriter writer, TemplateSet obj) {
     writer
-      ..writeByte(8)
+      ..writeByte(9)
       ..writeByte(0)
       ..write(obj.exercise)
       ..writeByte(1)
@@ -87,7 +88,9 @@ class TemplateSetAdapter extends TypeAdapter<TemplateSet> {
       ..writeByte(6)
       ..write(obj.isTimeBased)
       ..writeByte(7)
-      ..write(obj.seconds);
+      ..write(obj.seconds)
+      ..writeByte(8)
+      ..write(obj.isSuperset);
   }
 
   @override

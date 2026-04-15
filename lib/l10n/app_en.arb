@@ -20,7 +20,7 @@
   "weightStepLabel": "Weight step",
   "weightIncreaseLabel": "Weight increase",
   "tuningSettings": "Tuning settings",
-  "tuningHint": "Weights increase by your chosen step only when prior sets matched reps.",
+  "tuningHint": "Weight increases only when the last comparable session hit the target reps.",
   "volumeLabel": "Volume",
   "volumeModeFixed": "Keep template volume",
   "volumeModeAuto": "Auto-adjust volume",

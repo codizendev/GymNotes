@@ -127,7 +127,8 @@ class _TemplateDetailPageState extends State<TemplateDetailPage> {
       ..rpe = res.rpe
       ..notes = res.notes
       ..isTimeBased = res.isTimeBased
-      ..seconds = res.seconds;
+      ..seconds = res.seconds
+      ..isSuperset = res.isSuperset;
 
     final ordered = _sets..sort((a, b) => a.setNumber.compareTo(b.setNumber));
     await _applyNewOrder(ordered);
@@ -148,6 +149,7 @@ class _TemplateDetailPageState extends State<TemplateDetailPage> {
       notes: source.notes,
       isTimeBased: source.isTimeBased,
       seconds: source.seconds,
+      isSuperset: source.isSuperset,
     );
     list.add(dup);
     await _applyNewOrder(list);
@@ -217,7 +219,35 @@ class _TemplateDetailPageState extends State<TemplateDetailPage> {
                         final x = sets[i];
                         return ListTile(
                           key: ValueKey('tmplset-$i-${x.exercise}'),
-                          title: Text('${x.exercise}  \u2022  ${s.setNumberShort} ${x.setNumber}'),
+                          title: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  '${x.exercise}  \u2022  ${s.setNumberShort} ${x.setNumber}',
+                                ),
+                              ),
+                              if (x.isSuperset)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(999),
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary.withValues(alpha: 0.14),
+                                  ),
+                                  child: Text(
+                                    'SS',
+                                    style: Theme.of(context).textTheme.labelSmall
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                  ),
+                                ),
+                            ],
+                          ),
                           subtitle: Text(_formatTemplateSubtitle(x, s)),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
@@ -325,7 +355,10 @@ String _formatTemplateSubtitle(TemplateSet x, AppLocalizations s) {
   } else {
     details = '${x.reps} ${s.reps.toLowerCase()} @ ${x.weightKg.toStringAsFixed(1)} kg';
   }
-  final extras = '${x.rpe != null ? '  \u2022  RPE ${x.rpe}' : ''}${x.notes.isNotEmpty ? '\n${x.notes}' : ''}';
+  final extras =
+      '${x.isSuperset ? '  \u2022  Superset' : ''}'
+      '${x.rpe != null ? '  \u2022  RPE ${x.rpe}' : ''}'
+      '${x.notes.isNotEmpty ? '\n${x.notes}' : ''}';
   return '$details$extras';
 }
 
@@ -342,6 +375,7 @@ class _TemplateSetFormState extends State<_TemplateSetForm> {
   late TextEditingController _minutes;
   late TextEditingController _seconds;
   _TEntryMode mode = _TEntryMode.reps;
+  bool _isSuperset = false;
   bool _exerciseFieldInitialized = false;
 
   @override
@@ -355,6 +389,7 @@ class _TemplateSetFormState extends State<_TemplateSetForm> {
     _rpe = TextEditingController(text: i.rpe?.toString() ?? '');
     _notes = TextEditingController(text: i.notes);
     mode = i.isTimeBased ? _TEntryMode.time : _TEntryMode.reps;
+    _isSuperset = i.isSuperset;
     final totalSecs = i.seconds ?? 0;
     _minutes = TextEditingController(text: (totalSecs ~/ 60).toString());
     _seconds = TextEditingController(text: (totalSecs % 60).toString());
@@ -409,6 +444,7 @@ class _TemplateSetFormState extends State<_TemplateSetForm> {
       notes: _notes.text.trim(),
       isTimeBased: isTime,
       seconds: seconds,
+      isSuperset: _isSuperset,
     );
     Navigator.pop(context, updated);
   }
@@ -575,6 +611,13 @@ class _TemplateSetFormState extends State<_TemplateSetForm> {
               controller: _notes,
               maxLines: 2,
               decoration: InputDecoration(labelText: s.notesLabel, prefixIcon: const Icon(Icons.note_alt_outlined)),
+            ),
+            const SizedBox(height: 10),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: _isSuperset,
+              onChanged: (v) => setState(() => _isSuperset = v),
+              title: const Text('Part of a superset'),
             ),
             const SizedBox(height: 12),
             FilledButton.icon(onPressed: _save, icon: const Icon(Icons.save), label: Text(s.save)),

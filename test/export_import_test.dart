@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_application_1/models/workout.dart';
-import 'package:flutter_application_1/models/set_entry.dart';
-import 'package:flutter_application_1/services/export_service.dart';
+import 'package:gymnotes/models/workout.dart';
+import 'package:gymnotes/models/set_entry.dart';
+import 'package:gymnotes/services/export_service.dart';
 
 void main() {
   test('PDF embed/extract/import round-trip', () async {

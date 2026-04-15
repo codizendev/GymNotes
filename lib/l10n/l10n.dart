@@ -193,7 +193,7 @@ abstract class AppLocalizations {
   /// No description provided for @tuningHint.
   ///
   /// In en, this message translates to:
-  /// **'Weights increase by your chosen step only when prior sets matched reps.'**
+  /// **'Weight increases only when the last comparable session hit the target reps.'**
   String get tuningHint;
 
   /// No description provided for @volumeLabel.

@@ -14,7 +14,6 @@ import '../models/workout_template.dart';
 import '../models/cardio_entry.dart';
 import '../models/cardio_template.dart';
 import '../services/export_service.dart';
-import '../services/pro_service.dart';
 import 'workout_detail_page.dart';
 
 import '../l10n/l10n.dart';
@@ -32,7 +31,6 @@ class _WorkoutsListPageState extends State<WorkoutsListPage> {
   late final Box<WorkoutTemplate> tbox;
   late final Box<CardioEntry> cbox;
   late final Box<CardioTemplate> ctbox;
-  late final Box settings;
 
   final _searchCtrl = TextEditingController();
   String _kindFilter = 'all'; // all | strength | cardio
@@ -48,7 +46,6 @@ class _WorkoutsListPageState extends State<WorkoutsListPage> {
     tbox = Hive.box<WorkoutTemplate>('templates');
     cbox = Hive.box<CardioEntry>('cardio_entries');
     ctbox = Hive.box<CardioTemplate>('cardio_templates');
-    settings = Hive.box('settings');
     _searchCtrl.addListener(() => setState(() {}));
   }
 
@@ -540,13 +537,6 @@ class _WorkoutsListPageState extends State<WorkoutsListPage> {
           context,
         ).showSnackBar(SnackBar(content: Text(s.importSuccessWorkout)));
       } else if (choice == 'template') {
-        if (!await ProService.ensureTemplateCapacity(
-          context,
-          settings,
-          tbox.length,
-        )) {
-          return;
-        }
         if (!mounted) return;
         final w = parsed.workout;
         final tmplName = (w.title.isNotEmpty)
@@ -564,6 +554,7 @@ class _WorkoutsListPageState extends State<WorkoutsListPage> {
               notes: se.notes,
               isTimeBased: se.isTimeBased,
               seconds: se.seconds,
+              isSuperset: se.isSuperset,
             ),
         ];
 

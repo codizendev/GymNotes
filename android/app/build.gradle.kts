@@ -18,6 +18,7 @@ kotlin {
 }
 
 val appId = "com.gymnotes.app"
+val privacyPolicyFile = rootProject.file("../PRIVACY_POLICY.md")
 val keystoreProperties = Properties()
 val keystorePropertiesFile = rootProject.file("key.properties")
 val hasReleaseKeystore = keystorePropertiesFile.exists()
@@ -61,11 +62,12 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
-            signingConfig = if (hasReleaseKeystore) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
+            if (hasReleaseKeystore) {
+                signingConfig = signingConfigs.getByName("release")
             }
         }
     }
@@ -121,6 +123,10 @@ val prepublishCheck = tasks.register("prepublishCheck") {
             failures += "Missing android/key.properties (release keystore config)."
         }
 
+        if (!privacyPolicyFile.exists()) {
+            failures += "Missing PRIVACY_POLICY.md in project root."
+        }
+
         if (failures.isNotEmpty()) {
             throw GradleException(
                 "Prepublish checks failed:\n - " + failures.joinToString("\n - ")
@@ -131,6 +137,18 @@ val prepublishCheck = tasks.register("prepublishCheck") {
 }
 
 // Ne tražimo taskove odmah; pri kreiranju svakog taska provjeri ime i zakači finalizedBy.
+gradle.taskGraph.whenReady {
+    val isReleaseRequested = allTasks.any { task ->
+        task.name.contains("Release", ignoreCase = true) ||
+            task.name.equals("prepublishCheck", ignoreCase = true)
+    }
+    if (isReleaseRequested && !hasReleaseKeystore) {
+        throw GradleException(
+            "Release tasks require android/key.properties with a valid upload keystore configuration."
+        )
+    }
+}
+
 tasks.configureEach {
     when (name) {
         "assembleDebug" -> finalizedBy(copyFlutterApkDebug)

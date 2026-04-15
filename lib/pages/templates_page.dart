@@ -6,7 +6,6 @@ import '../models/cardio_entry.dart';
 import '../models/cardio_template.dart';
 import 'template_detail_page.dart';
 import 'cardio_template_detail_page.dart';
-import '../services/pro_service.dart';
 
 // localization
 import '../l10n/l10n.dart';
@@ -21,19 +20,16 @@ class TemplatesPage extends StatefulWidget {
 class _TemplatesPageState extends State<TemplatesPage> {
   late final Box<WorkoutTemplate> tbox;
   late final Box<CardioTemplate> ctbox;
-  late final Box settings;
 
   @override
   void initState() {
     super.initState();
     tbox = Hive.box<WorkoutTemplate>('templates');
     ctbox = Hive.box<CardioTemplate>('cardio_templates');
-    settings = Hive.box('settings');
   }
 
   Future<void> _createTemplate() async {
     final s = AppLocalizations.of(context);
-    if (!await ProService.ensureTemplateCapacity(context, settings, tbox.length)) return;
     if (!mounted) return;
     final nameCtrl = TextEditingController();
     final notesCtrl = TextEditingController();
@@ -70,7 +66,6 @@ class _TemplatesPageState extends State<TemplatesPage> {
 
   Future<void> _duplicate(WorkoutTemplate t) async {
     final s = AppLocalizations.of(context);
-    if (!await ProService.ensureTemplateCapacity(context, settings, tbox.length)) return;
     final copy = WorkoutTemplate(
       name: '${t.name} (copy)',
       notes: t.notes,
@@ -85,6 +80,7 @@ class _TemplatesPageState extends State<TemplatesPage> {
             notes: ss.notes,
             isTimeBased: ss.isTimeBased,
             seconds: ss.seconds,
+            isSuperset: ss.isSuperset,
           ),
       ],
     );
@@ -124,6 +120,7 @@ class _TemplatesPageState extends State<TemplatesPage> {
             notes: ss.notes,
             isTimeBased: ss.isTimeBased,
             seconds: ss.seconds,
+            isSuperset: ss.isSuperset,
           ),
       ],
     );
@@ -149,7 +146,6 @@ class _TemplatesPageState extends State<TemplatesPage> {
 
   Future<void> _createCardioTemplate() async {
     final s = AppLocalizations.of(context);
-    if (!await ProService.ensureTemplateCapacity(context, settings, ctbox.length)) return;
     if (!mounted) return;
     final nameCtrl = TextEditingController();
     final notesCtrl = TextEditingController();
@@ -189,7 +185,6 @@ class _TemplatesPageState extends State<TemplatesPage> {
 
   Future<void> _duplicateCardioTemplate(CardioTemplate t) async {
     final s = AppLocalizations.of(context);
-    if (!await ProService.ensureTemplateCapacity(context, settings, ctbox.length)) return;
     final plannedSeconds = _plannedTotalSeconds(t.segments);
     final copy = CardioTemplate(
       name: '${t.name} (copy)',
@@ -321,7 +316,13 @@ class _TemplatesPageState extends State<TemplatesPage> {
                     child: Text(s.noTemplatesYet),
                   )
                 else
-                  ...items.map((t) => Padding(
+                  ...items.map((t) {
+                    final supersetSets = t.sets.where((ss) => ss.isSuperset).length;
+                    final subtitle =
+                        '${t.sets.length} ${s.setsCount.toLowerCase()}'
+                        '${supersetSets > 0 ? ' - Superset sets: $supersetSets' : ''}'
+                        '${t.notes.isNotEmpty ? ' - ${t.notes}' : ''}';
+                    return Padding(
                         padding: const EdgeInsets.only(bottom: 10),
                         child: Card(
                           elevation: 0,
@@ -331,9 +332,7 @@ class _TemplatesPageState extends State<TemplatesPage> {
                           ),
                           child: ListTile(
                             title: Text(t.name),
-                            subtitle: Text(
-                              '${t.sets.length} ${s.setsCount.toLowerCase()}${t.notes.isNotEmpty ? ' - ${t.notes}' : ''}',
-                            ),
+                            subtitle: Text(subtitle),
                             trailing: PopupMenuButton<String>(
                               onSelected: (v) async {
                                 if (v == 'edit') {
@@ -371,7 +370,8 @@ class _TemplatesPageState extends State<TemplatesPage> {
                             },
                           ),
                         ),
-                      )),
+                      );
+                  }),
                 const SizedBox(height: 16),
                 _SectionHeader(
                   title: s.workoutTypeCardio,
