@@ -39,16 +39,18 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           set -euo pipefail
+          KEYSTORE_PATH="android/upload-keystore.jks"
+
           if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ] && [ -n "${ANDROID_STORE_PASSWORD:-}" ] && [ -n "${ANDROID_KEY_PASSWORD:-}" ] && [ -n "${ANDROID_KEY_ALIAS:-}" ]; then
             echo "Using signing config from GitHub Secrets."
-            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > upload-keystore.jks
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
           else
             echo "Secrets missing. Generating temporary CI keystore."
             CI_STORE_PASSWORD="ci_build_password"
             CI_KEY_PASSWORD="ci_build_password"
             CI_KEY_ALIAS="ci-upload"
             keytool -genkeypair -v \
-              -keystore upload-keystore.jks \
+              -keystore "$KEYSTORE_PATH" \
               -alias "$CI_KEY_ALIAS" \
               -keyalg RSA \
               -keysize 2048 \
