@@ -30,6 +30,44 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Prepare Android signing
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ] && [ -n "${ANDROID_STORE_PASSWORD:-}" ] && [ -n "${ANDROID_KEY_PASSWORD:-}" ] && [ -n "${ANDROID_KEY_ALIAS:-}" ]; then
+            echo "Using signing config from GitHub Secrets."
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > upload-keystore.jks
+          else
+            echo "Secrets missing. Generating temporary CI keystore."
+            CI_STORE_PASSWORD="ci_build_password"
+            CI_KEY_PASSWORD="ci_build_password"
+            CI_KEY_ALIAS="ci-upload"
+            keytool -genkeypair -v \
+              -keystore upload-keystore.jks \
+              -alias "$CI_KEY_ALIAS" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass "$CI_STORE_PASSWORD" \
+              -keypass "$CI_KEY_PASSWORD" \
+              -dname "CN=GymNotes CI, OU=CI, O=GymNotes, L=Zagreb, ST=Zagreb, C=HR"
+            ANDROID_STORE_PASSWORD="$CI_STORE_PASSWORD"
+            ANDROID_KEY_PASSWORD="$CI_KEY_PASSWORD"
+            ANDROID_KEY_ALIAS="$CI_KEY_ALIAS"
+          fi
+
+          cat > android/key.properties <<EOF
+          storePassword=$ANDROID_STORE_PASSWORD
+          keyPassword=$ANDROID_KEY_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          storeFile=../upload-keystore.jks
+          EOF
+
       - name: Get packages
         run: flutter pub get
 
